@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BANG! - Wild West Card Game</title>
+<link rel="stylesheet" href="game.css">
+</head>
+<body>
+<div id="header">
+  <h1>BANG!</h1>
+  <div id="status-msg">Loading...</div>
+  <div id="phase-info"></div>
+</div>
+
+<div id="game-container">
+  <!-- Left: Human info + actions -->
+  <div id="left-panel">
+    <div class="panel-box">
+      <div class="panel-title">You</div>
+      <div id="human-character">-</div>
+      <div id="human-role-display"></div>
+      <div class="ability-text" id="human-ability"></div>
+      <div class="health-bar" id="human-health"></div>
+      <div class="stat-line" id="human-range-stat">Range: 1</div>
+      <div class="equipment-area" id="human-equip"></div>
+    </div>
+    <div class="panel-box" id="action-panel">
+      <div class="panel-title">Actions</div>
+      <div id="action-btns">
+        <button class="btn primary" id="btn-draw" onclick="doDrawPhase()">Draw Cards</button>
+        <button class="btn" id="btn-sid" onclick="doSidAbility()" style="display:none">Use Ability (2 cards)</button>
+        <button class="btn end-turn" id="btn-end" onclick="endTurn()" disabled>End Turn</button>
+      </div>
+    </div>
+    <div class="panel-box" id="card-info-box" style="display:none">
+      <div class="panel-title">Selected Card</div>
+      <div id="card-info-text" style="font-size:0.75em;line-height:1.4;color:#ccc;"></div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn primary" id="btn-play-card" onclick="playSelectedCard()" disabled>Play Card</button>
+        <button class="btn" id="btn-deselect" onclick="deselectCard()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center: Table -->
+  <div id="center-table">
+    <div id="opponents-area"></div>
+    <div id="deck-area">
+      <div>
+        <div class="deck-visual" id="draw-pile" onclick="deckInfo()">
+          <span id="deck-count" style="font-size:1.1em;font-weight:bold">52</span>
+          <span style="font-size:0.65em">cards</span>
+        </div>
+        <div class="deck-label">Draw Pile</div>
+      </div>
+      <div id="game-center-info" style="text-align:center;font-size:0.8em;color:#8b6914;max-width:150px;line-height:1.4"></div>
+      <div>
+        <div class="deck-visual" id="discard-pile">
+          <div id="discard-card"><span style="color:#555;font-size:0.8em">Empty</span></div>
+        </div>
+        <div class="deck-label">Discard</div>
+      </div>
+    </div>
+    <div id="target-banner" style="display:none;background:#4a1a00;border:2px solid #ff6600;border-radius:8px;padding:8px 16px;text-align:center;color:#ffaa44;font-size:0.9em;box-shadow:0 0 12px rgba(255,100,0,0.4);margin-bottom:6px">
+      <strong>🎯 TARGET MODE</strong> — <span id="target-banner-text"></span> &nbsp;·&nbsp; <span style="font-size:0.8em;color:#ff9966">Click an orange opponent above · Esc to cancel</span>
+    </div>
+    <div id="human-area">
+      <div id="hand-label">Your Hand — click a card to select it</div>
+      <div id="human-hand"></div>
+    </div>
+  </div>
+
+  <!-- Right: Log -->
+  <div id="right-panel">
+    <div class="panel-box" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+      <div class="panel-title">Game Log</div>
+      <div id="game-log" style="flex:1;min-height:0;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Card play popup -->
+<div id="card-popup"></div>
+
+<!-- Miss popup -->
+<div id="miss-popup"></div>
+
+<!-- Player badge overlay (Gatling/Indians responses) -->
+<div id="player-badge-overlay"></div>
+
+<!-- Response prompt -->
+<div id="response-area">
+  <h3 id="response-title">Respond?</h3>
+  <div id="response-btns"></div>
+</div>
+
+<!-- Modal -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <div id="modal-title">Title</div>
+    <div id="modal-body"></div>
+    <div id="modal-btns"></div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
