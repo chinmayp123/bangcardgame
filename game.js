@@ -159,6 +159,87 @@ function drawBang() {
   return c;
 }
 
+// Dramatic card flip animation — shows face-down card then flips to reveal
+// isGood: true=safe (green), false=bad (red/shake), null=neutral (orange)
+// callback: called after animation completes
+function showDramaticFlip(card, label, isGood, callback) {
+  const suits = ['♥','♠','♦','♣'];
+  const colors = ['#cc0000','#222','#cc0000','#222'];
+
+  const overlay = document.createElement('div');
+  overlay.id = 'flip-overlay';
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'flip-label';
+  labelEl.textContent = label;
+
+  const scene = document.createElement('div');
+  scene.className = 'flip-scene';
+
+  const inner = document.createElement('div');
+  inner.className = 'flip-inner';
+
+  const back = document.createElement('div');
+  back.className = 'flip-face flip-face-back';
+  back.textContent = '🤠';
+
+  const front = document.createElement('div');
+  front.className = 'flip-face flip-face-front';
+  if(card) {
+    const valEl = document.createElement('div');
+    valEl.className = 'flip-card-val';
+    valEl.style.color = colors[card.suit];
+    valEl.textContent = valName(card.value);
+    const suitEl = document.createElement('div');
+    suitEl.className = 'flip-card-suit';
+    suitEl.style.color = colors[card.suit];
+    suitEl.textContent = suits[card.suit];
+    front.appendChild(valEl);
+    front.appendChild(suitEl);
+  }
+
+  inner.appendChild(back);
+  inner.appendChild(front);
+  scene.appendChild(inner);
+
+  const resultEl = document.createElement('div');
+  resultEl.className = 'flip-result';
+
+  overlay.appendChild(labelEl);
+  overlay.appendChild(scene);
+  overlay.appendChild(resultEl);
+  document.body.appendChild(overlay);
+
+  // Tension pause, then flip
+  setTimeout(() => {
+    inner.classList.add('flipped');
+
+    // After flip completes, show result
+    setTimeout(() => {
+      if(isGood === true) {
+        resultEl.textContent = '✅ Safe!';
+        resultEl.style.color = '#44ff88';
+        front.style.animation = 'flip-glow 0.6s ease';
+      } else if(isGood === false) {
+        resultEl.textContent = '💥 BOOM!';
+        resultEl.style.color = '#ff4444';
+        inner.style.animation = 'flip-shake 0.5s ease';
+      } else {
+        resultEl.textContent = '➡️ Passes on...';
+        resultEl.style.color = '#ffaa44';
+      }
+      resultEl.style.opacity = '1';
+
+      // Linger, then fade out
+      setTimeout(() => {
+        overlay.style.transition = 'opacity 0.4s';
+        overlay.style.opacity = '0';
+        setTimeout(() => { overlay.remove(); callback(); }, 400);
+      }, 1100);
+    }, 680);
+  }, 900);
+}
+
 // ===== ROLE & CHARACTER ASSIGNMENT =====
 function assignRoles(count) {
   const roles = [];
@@ -253,24 +334,29 @@ function beginTurn(playerIdx) {
   if(dynIdx!==-1){
     const dynCard = p.inPlay[dynIdx];
     const flipped = drawBang();
-    addLog(`${p.name} flips for Dynamite: ${flipped?valName(flipped.value)+suitSym(flipped.suit):'nothing'}.`,'log-action');
-    if(flipped && flipped.suit===3 && flipped.value>=2 && flipped.value<=9){
-      addLog(`BOOM! Dynamite explodes on ${p.name}! -3 life!`,'log-bad');
-      p.inPlay.splice(dynIdx,1);
-      discardCard(dynCard);
-      if(p.isHuman) renderAll();
-      dealDamage(playerIdx, 3, null, ()=>{
-        // Pass dynamite or continue
-        continueAfterDynamiteCheck(playerIdx);
-      });
-      return;
-    } else {
-      // Pass dynamite to next player
-      p.inPlay.splice(dynIdx,1);
-      const nextAlive = nextAlivePlayer(playerIdx);
-      G.players[nextAlive].inPlay.push(dynCard);
-      addLog(`Dynamite passes to ${G.players[nextAlive].name}.`,'log-info');
-    }
+    const explodes = flipped && flipped.suit===3 && flipped.value>=2 && flipped.value<=9;
+    showDramaticFlip(
+      flipped,
+      `💣 Dynamite — ${p.name}`,
+      explodes ? false : null,
+      () => {
+        addLog(`${p.name} flips for Dynamite: ${flipped?valName(flipped.value)+suitSym(flipped.suit):'nothing'}.`,'log-action');
+        if(explodes){
+          addLog(`BOOM! Dynamite explodes on ${p.name}! -3 life!`,'log-bad');
+          p.inPlay.splice(dynIdx,1);
+          discardCard(dynCard);
+          renderAll();
+          dealDamage(playerIdx, 3, null, ()=>continueAfterDynamiteCheck(playerIdx));
+        } else {
+          p.inPlay.splice(dynIdx,1);
+          const nextAlive = nextAlivePlayer(playerIdx);
+          G.players[nextAlive].inPlay.push(dynCard);
+          addLog(`Dynamite passes to ${G.players[nextAlive].name}.`,'log-info');
+          continueAfterDynamiteCheck(playerIdx);
+        }
+      }
+    );
+    return;
   }
 
   continueAfterDynamiteCheck(playerIdx);
@@ -579,10 +665,23 @@ function playCard(pidx, cardIdx, targetIdx) {
   const card = p.hand[cardIdx];
   if(!card) return;
 
+  // Capture source rect before any DOM changes
+  let _flyRect = null;
+  if(!card.equip){
+    if(p.isHuman){
+      const el=document.querySelector(`#human-hand [data-card-id="${card.id}"]`);
+      if(el) _flyRect=el.getBoundingClientRect();
+    } else {
+      const el=document.getElementById(`opp-box-${pidx}`);
+      if(el) _flyRect=el.getBoundingClientRect();
+    }
+  }
+
   // Show popup only when card will actually be played (not on target-prompt early-returns)
   const needsTarget = ['BANG!','Panic!','Cat Balou','Duel'].includes(card.name);
   if(card.name!=='MISS!' && (!needsTarget || (targetIdx!==undefined && targetIdx!==null))){
     showCardPopup(p.name, card.name);
+    flyCardToDiscard(_flyRect, card.name, card.type==='blue');
   }
 
   if(card.equip){
@@ -701,23 +800,33 @@ function playBang(attackerIdx, defenderIdx, card) {
   addLog(`${atk.name} shoots BANG! at ${def.name}!`,'log-action');
 
   // Check barrel first
-  let savedByBarrel = false;
   const hasBarrel = def.inPlay.some(c=>c.name==='Barrel') || def.char.key==='jour';
   if(hasBarrel){
     let lucky = def.char.key==='lucky';
     let flipped1=drawBang(), flipped2=lucky?drawBang():null;
     const check = lucky ? (isRed(flipped1.suit)?flipped1:isRed(flipped2.suit)?flipped2:flipped1) : flipped1;
-    const text = lucky ? `${valName(flipped1.value)}${suitSym(flipped1.suit)}/${valName(flipped2.value)}${suitSym(flipped2.suit)}` : `${valName(check.value)}${suitSym(check.suit)}`;
-    addLog(`${def.name} flips for Barrel: ${text}.`,'log-info');
-    if(check.suit===0){ savedByBarrel=true; addLog(`Hearts! Barrel saves ${def.name}!`,'log-good'); }
-  }
-
-  if(savedByBarrel){
-    renderAll();
-    afterCardPlay(attackerIdx);
+    const saved = check.suit===0;
+    const barrelLabel = lucky
+      ? `🛢️ Barrel — ${def.name} (Lucky Duke)`
+      : `🛢️ Barrel — ${def.name}`;
+    showDramaticFlip(check, barrelLabel, saved, () => {
+      const text = lucky ? `${valName(flipped1.value)}${suitSym(flipped1.suit)}/${valName(flipped2.value)}${suitSym(flipped2.suit)}` : `${valName(check.value)}${suitSym(check.suit)}`;
+      addLog(`${def.name} flips for Barrel: ${text}.`,'log-info');
+      if(saved){
+        addLog(`Hearts! Barrel saves ${def.name}!`,'log-good');
+        renderAll();
+        afterCardPlay(attackerIdx);
+      } else {
+        _playBangAfterBarrel(attackerIdx, defenderIdx, atk, def);
+      }
+    });
     return;
   }
 
+  _playBangAfterBarrel(attackerIdx, defenderIdx, atk, def);
+}
+
+function _playBangAfterBarrel(attackerIdx, defenderIdx, atk, def) {
   // Human defender: prompt for MISS!
   if(def.isHuman){
     G.phase='response';
@@ -727,7 +836,7 @@ function playBang(attackerIdx, defenderIdx, card) {
       onDodge:()=>{ addLog(`${def.name} dodges!`,'log-good'); renderAll(); afterCardPlay(attackerIdx); },
       onHit:()=>{ addLog(`${def.name} is hit!`,'log-bad'); dealDamage(defenderIdx,1,attackerIdx,()=>{ renderAll(); afterCardPlay(attackerIdx); }); }
     };
-    showResponsePrompt(`${atk.name} shoots you! Play MISS!${needMisses>1?' (need 2)':''}`, defenderIdx);
+    showResponsePrompt(`${atk.name} shoots you! Play MISS!${atk.char.key==='slab'?' (need 2)':''}`, defenderIdx);
     return;
   }
 
@@ -767,37 +876,43 @@ function playGatling(attackerIdx) {
     if(i>=targets.length){ renderAll(); afterCardPlay(attackerIdx); return; }
     const def = targets[i++];
     // Check barrel (Gatling CAN be barrel'd - it's still one BANG per player)
-    let savedByBarrel = false;
     const hasBarrel = def.inPlay.some(c=>c.name==='Barrel')||def.char.key==='jour';
     if(hasBarrel){
       const f=drawBang();
-      if(f&&f.suit===0){savedByBarrel=true; addLog(`${def.name}'s Barrel saves them from Gatling!`,'log-good');}
-    }
-    if(savedByBarrel){nextTarget();return;}
-
-    if(def.isHuman){
-      G.phase='response';
-      G.pendingResponse={
-        type:'gatling',attackerIdx,defenderIdx:def.idx,needMisses:1,missesSoFar:0,
-        onDodge:()=>{addLog(`${def.name} dodges Gatling!`,'log-good');showPlayerCardPopup(def.idx,'MISS!');nextTarget();},
-        onHit:()=>{addLog(`${def.name} hit by Gatling!`,'log-bad');dealDamage(def.idx,1,attackerIdx,nextTarget);}
-      };
-      showResponsePrompt(`Gatling Gun hits you! Play MISS!`, def.idx);
+      const saved = f&&f.suit===0;
+      showDramaticFlip(f, `🛢️ Barrel — ${def.name}`, saved, () => {
+        if(saved){ addLog(`${def.name}'s Barrel saves them from Gatling!`,'log-good'); nextTarget(); return; }
+        _gatlingHitDef(def, attackerIdx, nextTarget);
+      });
       return;
     }
 
-    if(hasMissCard(def.idx)){
-      const mc=aiGetMissCards(def.idx,1)[0];
-      def.hand.splice(def.hand.indexOf(mc),1); discardCard(mc);
-      addLog(`${def.name} dodges Gatling!`,'log-good');
-      showPlayerCardPopup(def.idx,'MISS!');
-      nextTarget();
-    } else {
-      addLog(`${def.name} hit by Gatling!`,'log-bad');
-      dealDamage(def.idx,1,attackerIdx,nextTarget);
-    }
+    _gatlingHitDef(def, attackerIdx, nextTarget);
   }
   nextTarget();
+}
+
+function _gatlingHitDef(def, attackerIdx, nextTarget) {
+  if(def.isHuman){
+    G.phase='response';
+    G.pendingResponse={
+      type:'gatling',attackerIdx,defenderIdx:def.idx,needMisses:1,missesSoFar:0,
+      onDodge:()=>{addLog(`${def.name} dodges Gatling!`,'log-good');showPlayerCardPopup(def.idx,'MISS!');nextTarget();},
+      onHit:()=>{addLog(`${def.name} hit by Gatling!`,'log-bad');dealDamage(def.idx,1,attackerIdx,nextTarget);}
+    };
+    showResponsePrompt(`Gatling Gun hits you! Play MISS!`, def.idx);
+    return;
+  }
+  if(hasMissCard(def.idx)){
+    const mc=aiGetMissCards(def.idx,1)[0];
+    def.hand.splice(def.hand.indexOf(mc),1); discardCard(mc);
+    addLog(`${def.name} dodges Gatling!`,'log-good');
+    showPlayerCardPopup(def.idx,'MISS!');
+    nextTarget();
+  } else {
+    addLog(`${def.name} hit by Gatling!`,'log-bad');
+    dealDamage(def.idx,1,attackerIdx,nextTarget);
+  }
 }
 
 // Indians!
@@ -1529,9 +1644,9 @@ function selectCard(idx) {
   const p=G.players[G.humanIdx];
   const card=p.hand[idx];
   G.selectedCard=idx;
-  document.getElementById('card-info-box').style.display='block';
+
+  // Set popup content
   document.getElementById('card-info-text').innerHTML=`<strong>${card.name}</strong><br><em>${valName(card.value)}${suitSym(card.suit)}</em><br>${card.desc}`;
-  // Enable play button?
   const canPlay=canPlayCardHuman(idx);
   document.getElementById('btn-play-card').disabled=!canPlay;
   if(G.phase==='discard'){
@@ -1540,7 +1655,45 @@ function selectCard(idx) {
   } else {
     document.getElementById('btn-play-card').textContent='Play Card';
   }
-  renderAll();
+
+  renderAll(); // renders hand first so card element exists
+
+  // Position popup under the selected card element
+  positionCardInfoPopup(idx);
+}
+
+function positionCardInfoPopup(idx) {
+  const popup = document.getElementById('card-info-box');
+  // Find the card element by its position in #human-hand
+  const container = document.getElementById('human-hand');
+  const cardEl = container.children[idx];
+  if(!cardEl) { popup.style.display='none'; return; }
+
+  const rect = cardEl.getBoundingClientRect();
+  const popupW = 180;
+  // Center popup horizontally on card, appear below it
+  let left = rect.left + rect.width/2 - popupW/2;
+  let top  = rect.bottom + 8;
+
+  // Clamp to viewport
+  left = Math.max(6, Math.min(left, window.innerWidth - popupW - 6));
+  if(top + 160 > window.innerHeight) {
+    // Not enough room below — show above instead
+    top = rect.top - 160;
+    popup.querySelector('.card-info-arrow').style.cssText = 'top:auto;bottom:-9px;border-bottom:none;border-top:9px solid #c49a30;';
+    popup.querySelector('.card-info-arrow').style.setProperty('--after-border', 'border-top:7px solid #241008;border-bottom:none;');
+  } else {
+    popup.querySelector('.card-info-arrow').style.cssText = '';
+  }
+
+  // Adjust arrow horizontal position to point at card center
+  const arrowLeft = rect.left + rect.width/2 - left;
+  popup.querySelector('.card-info-arrow').style.left = `${Math.max(16, Math.min(arrowLeft, popupW-16))}px`;
+  popup.querySelector('.card-info-arrow').style.transform = 'translateX(-50%)';
+
+  popup.style.left = left + 'px';
+  popup.style.top  = top  + 'px';
+  popup.style.display = 'block';
 }
 
 function canPlayCardHuman(idx) {
@@ -1614,7 +1767,46 @@ function renderAll(targetableIds) {
   renderHumanInfo();
   renderHumanHand();
   renderDeckArea();
+  renderRolesBar();
   updateActionButtons();
+}
+
+function renderRolesBar() {
+  const el = document.getElementById('roles-bar-content');
+  if(!el || !G.players) return;
+
+  // Define which roles and their display info
+  // Sheriff is always revealed; others only shown as count
+  const roleConfig = [
+    { key:'sheriff',  label:'Sheriff',  icon:'⭐', color:'#f5c518' },
+    { key:'deputy',   label:'Deputy',   icon:'🔵', color:'#4488ff' },
+    { key:'outlaw',   label:'Outlaw',   icon:'💀', color:'#ff4444' },
+    { key:'renegade', label:'Renegade', icon:'🟣', color:'#cc66ff' },
+  ];
+
+  // Count total and alive for each role
+  // We only reveal exact roles for: sheriff (always), and the human's own role
+  // For all others we show alive/total counts with pips
+  const rows = roleConfig.map(rc => {
+    const all   = G.players.filter(p => p.role === rc.key);
+    const alive = all.filter(p => p.alive);
+    if(all.length === 0) return null;
+    return { ...rc, total: all.length, alive: alive.length };
+  }).filter(Boolean);
+
+  el.innerHTML = rows.map(r => {
+    const pips = Array.from({length: r.total}, (_,i) =>
+      `<div class="role-pip ${i < r.alive ? 'alive' : 'dead'}"></div>`
+    ).join('');
+    return `<div class="role-row">
+      <div class="role-row-label">
+        <span class="role-row-icon">${r.icon}</span>
+        <span style="color:${r.color}">${r.label}</span>
+      </div>
+      <div class="role-pip-row">${pips}</div>
+      <div class="role-row-count">${r.alive}/${r.total}</div>
+    </div>`;
+  }).join('');
 }
 
 const CHAR_ICONS = {
@@ -1639,13 +1831,18 @@ function renderOpponents(targetableIds) {
   const others=G.players.filter(p=>!p.isHuman);
   area.innerHTML='';
 
-  others.forEach(p=>{
+  const seats=HEX_SEATS[others.length]||HEX_SEATS[6];
+  others.forEach((p,seatIdx)=>{
     const isTargetable=targetableIds&&targetableIds.includes(p.idx);
     const isCurTurn=G.turn===p.idx;
     const div=document.createElement('div');
     div.className='opp-box'+(p.alive?'':' dead')+(isCurTurn?' current-turn':'')+(isTargetable?' targetable':'');
     div.id=`opp-box-${p.idx}`;
     if(isTargetable) div.onclick=()=>selectTarget(p.idx);
+    const seat=seats[seatIdx]||seats[0];
+    div.style.position='absolute';
+    div.style.left=`clamp(4px, calc(${seat.cx}% - 82px), calc(100% - 168px))`;
+    div.style.top=seat.top+'px';
 
     const icon = CHAR_ICONS[p.char.key] || '🤠';
     const roleText = p.roleRevealed
@@ -1707,7 +1904,9 @@ function renderOpponents(targetableIds) {
 function renderHumanInfo() {
   const p=G.players[G.humanIdx];
   const icon=CHAR_ICONS[p.char.key]||'🤠';
-  document.getElementById('human-character').innerHTML=`<span style="font-size:1.6em;vertical-align:middle;margin-right:6px">${icon}</span>${p.char.name}`;
+  const seatIcon=document.getElementById('human-seat-icon');
+  if(seatIcon) seatIcon.textContent=icon;
+  document.getElementById('human-character').textContent=p.char.name;
   document.getElementById('human-role-display').innerHTML=`<span class="role-badge role-${p.role}">${p.role.toUpperCase()}</span>`;
   document.getElementById('human-ability').textContent=p.char.ability;
   let hpHtml='';
@@ -1805,6 +2004,11 @@ function renderHumanHand() {
       container.insertBefore(el, ref);
     }
   });
+
+  // Reposition floating popup if a card is selected
+  if(G.selectedCard !== null) {
+    requestAnimationFrame(() => positionCardInfoPopup(G.selectedCard));
+  }
 }
 
 function renderDeckArea() {
@@ -1857,6 +2061,34 @@ function addLog(msg, cls='log-action') {
 
 function setStatus(msg) {
   document.getElementById('status-msg').textContent=msg;
+}
+
+function flyCardToDiscard(fromRect, cardName, isBlue) {
+  if(!fromRect) return;
+  const discardEl=document.getElementById('discard-pile');
+  if(!discardEl) return;
+  const toRect=discardEl.getBoundingClientRect();
+
+  const el=document.createElement('div');
+  el.className='card-fly'+(isBlue?' card-fly-blue':'');
+  el.textContent=cardName;
+  el.style.left=fromRect.left+'px';
+  el.style.top=fromRect.top+'px';
+  el.style.width=fromRect.width+'px';
+  el.style.height=fromRect.height+'px';
+  document.body.appendChild(el);
+
+  // Force reflow then start transition
+  el.getBoundingClientRect();
+  el.style.transition='left 0.45s ease-in, top 0.45s ease-in, width 0.45s ease-in, height 0.45s ease-in, opacity 0.18s ease-in 0.3s, transform 0.45s ease-in';
+  el.style.left=toRect.left+'px';
+  el.style.top=toRect.top+'px';
+  el.style.width=toRect.width+'px';
+  el.style.height=toRect.height+'px';
+  el.style.opacity='0';
+  el.style.transform='rotate(22deg)';
+
+  setTimeout(()=>el.remove(), 600);
 }
 
 const CARD_ICONS = {
@@ -1957,9 +2189,8 @@ function showCharSelect() {
 
   showModal('Choose Your Character',
     `${playerCountHtml}
-    <p style="margin:12px 0 10px;color:#d4a017;text-align:center">Select your character:</p>
-    <div class="char-grid">${charListHtml}</div>
-    <p style="margin-top:10px;font-size:0.8em;color:#888;text-align:center">You will be assigned a random role. The Sheriff is revealed at the start.</p>`,
+    <div style="margin:8px 0 6px;color:#d4a017;text-align:center;font-size:0.8em;font-style:italic">Select your character — role assigned randomly</div>
+    <div class="char-grid">${charListHtml}</div>`,
     [{label:'Start Game!', fn:()=>{ closeModal(); startGame(window._selectedChar||0, window._selectedPlayerCount||5); }}]
   );
   window._selectedChar=0;

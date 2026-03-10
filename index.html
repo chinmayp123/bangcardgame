@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BANG! - Wild West Card Game</title>
 <link rel="stylesheet" href="game.css">
+<link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&display=swap" rel="stylesheet">
 </head>
 <body>
 <div id="header">
@@ -14,32 +15,11 @@
 </div>
 
 <div id="game-container">
-  <!-- Left: Human info + actions -->
+  <!-- Left: Roles bar only -->
   <div id="left-panel">
-    <div class="panel-box">
-      <div class="panel-title">You</div>
-      <div id="human-character">-</div>
-      <div id="human-role-display"></div>
-      <div class="ability-text" id="human-ability"></div>
-      <div class="health-bar" id="human-health"></div>
-      <div class="stat-line" id="human-range-stat">Range: 1</div>
-      <div class="equipment-area" id="human-equip"></div>
-    </div>
-    <div class="panel-box" id="action-panel">
-      <div class="panel-title">Actions</div>
-      <div id="action-btns">
-        <button class="btn primary" id="btn-draw" onclick="doDrawPhase()">Draw Cards</button>
-        <button class="btn" id="btn-sid" onclick="doSidAbility()" style="display:none">Use Ability (2 cards)</button>
-        <button class="btn end-turn" id="btn-end" onclick="endTurn()" disabled>End Turn</button>
-      </div>
-    </div>
-    <div class="panel-box" id="card-info-box" style="display:none">
-      <div class="panel-title">Selected Card</div>
-      <div id="card-info-text" style="font-size:0.75em;line-height:1.4;color:#ccc;"></div>
-      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn primary" id="btn-play-card" onclick="playSelectedCard()" disabled>Play Card</button>
-        <button class="btn" id="btn-deselect" onclick="deselectCard()">Cancel</button>
-      </div>
+    <div class="panel-box" id="roles-bar">
+      <div class="panel-title">Roles Alive</div>
+      <div id="roles-bar-content"></div>
     </div>
   </div>
 
@@ -47,12 +27,21 @@
   <div id="center-table">
     <div id="opponents-area"></div>
     <div id="deck-area">
-      <div>
-        <div class="deck-visual" id="draw-pile" onclick="deckInfo()">
-          <span id="deck-count" style="font-size:1.1em;font-weight:bold">52</span>
-          <span style="font-size:0.65em">cards</span>
+      <div id="deck-area-left">
+        <div>
+          <div class="deck-visual" id="draw-pile" onclick="deckInfo()">
+            <span id="deck-count" style="font-size:1.1em;font-weight:bold">52</span>
+            <span style="font-size:0.65em">cards</span>
+          </div>
+          <div class="deck-label">Draw Pile</div>
         </div>
-        <div class="deck-label">Draw Pile</div>
+        <div id="action-panel">
+          <div id="action-btns">
+            <button class="btn primary" id="btn-draw" onclick="doDrawPhase()">Draw Cards</button>
+            <button class="btn" id="btn-sid" onclick="doSidAbility()" style="display:none">Use Ability</button>
+            <button class="btn end-turn" id="btn-end" onclick="endTurn()" disabled>End Turn</button>
+          </div>
+        </div>
       </div>
       <div id="game-center-info" style="text-align:center;font-size:0.8em;color:#8b6914;max-width:150px;line-height:1.4"></div>
       <div>
@@ -65,7 +54,24 @@
     <div id="target-banner" style="display:none;background:#4a1a00;border:2px solid #ff6600;border-radius:8px;padding:8px 16px;text-align:center;color:#ffaa44;font-size:0.9em;box-shadow:0 0 12px rgba(255,100,0,0.4);margin-bottom:6px">
       <strong>🎯 TARGET MODE</strong> — <span id="target-banner-text"></span> &nbsp;·&nbsp; <span style="font-size:0.8em;color:#ff9966">Click an orange opponent above · Esc to cancel</span>
     </div>
+
+    <!-- Human seat — character info bar + hand -->
     <div id="human-area">
+      <div id="human-seat-info">
+        <div id="human-seat-icon">🤠</div>
+        <div id="human-seat-details">
+          <div id="human-character">-</div>
+          <div id="human-role-display"></div>
+          <div class="ability-text" id="human-ability"></div>
+        </div>
+        <div id="human-seat-stats">
+          <div class="health-bar" id="human-health"></div>
+          <div class="stat-line" id="human-range-stat">Range: 1</div>
+        </div>
+        <div id="human-seat-equip">
+          <div class="equipment-area" id="human-equip"></div>
+        </div>
+      </div>
       <div id="hand-label">Your Hand — click a card to select it</div>
       <div id="human-hand"></div>
     </div>
@@ -77,6 +83,17 @@
       <div class="panel-title">Game Log</div>
       <div id="game-log" style="flex:1;min-height:0;overflow-y:auto"></div>
     </div>
+  </div>
+</div>
+
+<!-- Selected card floating popup -->
+<div id="card-info-box" style="display:none">
+  <div class="card-info-arrow"></div>
+  <div class="panel-title">Selected Card</div>
+  <div id="card-info-text"></div>
+  <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn primary" id="btn-play-card" onclick="playSelectedCard()" disabled>Play Card</button>
+    <button class="btn" id="btn-deselect" onclick="deselectCard()">Cancel</button>
   </div>
 </div>
 
