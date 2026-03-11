@@ -86,6 +86,22 @@
   50%       { box-shadow: 0 0 40px rgba(68,255,68,0.8), 0 6px 24px rgba(0,0,0,0.7); }
 }
 
+/* ===== DRAW CARD ANIMATION ===== */
+.card-fly-draw {
+  position: fixed;
+  z-index: 300;
+  pointer-events: none;
+  border-radius: 7px;
+  border: 2px solid #a07020;
+  background:
+    repeating-linear-gradient(135deg, transparent, transparent 3px, rgba(0,0,0,0.15) 3px, rgba(0,0,0,0.15) 6px),
+    linear-gradient(135deg, #7a1a00, #400800, #1e0400);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 3px 5px 14px rgba(0,0,0,0.65);
+}
+
 /* ===== FLYING CARD ANIMATION ===== */
 .card-fly {
   position: fixed;
@@ -487,8 +503,8 @@ body {
 /* ===== MINI EQUIPMENT CARDS ===== */
 .placemat-equip { display: flex; gap: 4px; flex-wrap: wrap; }
 .mini-card {
-  width: 48px;
-  height: 64px;
+  width: 58px;
+  height: 78px;
   border-radius: 4px;
   border: 1.5px solid #a07020;
   background: linear-gradient(160deg, #f5e8c8, #e8d5a0);
@@ -503,10 +519,10 @@ body {
   box-shadow: 1px 2px 5px rgba(0,0,0,0.5);
 }
 .mini-card.mini-red { background: linear-gradient(160deg, #fff0e8, #f8d8c0); }
-.mini-card-suit { font-size: 1.4em; line-height: 1; }
-.mini-card-name { font-size: 0.85em; font-weight: bold; text-align: center; line-height: 1.1; color: #2a1408; }
-.mini-card-range { font-size: 0.7em; color: #993300; text-align: center; margin-top: 2px; font-weight: bold; }
-.mini-card-val { font-size: 0.85em; color: #444; align-self: flex-start; }
+.mini-card-suit { font-size: 1.6em; line-height: 1; }
+.mini-card-name { font-size: 0.9em; font-weight: bold; text-align: center; line-height: 1.1; color: #2a1408; }
+.mini-card-range { font-size: 0.75em; color: #993300; text-align: center; margin-top: 2px; font-weight: bold; }
+.mini-card-val { font-size: 0.9em; color: #444; align-self: flex-start; }
 
 /* ===== DECK AREA ===== */
 #deck-area {
@@ -605,7 +621,7 @@ body {
 }
 .human-char-img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 2px solid #c49a30; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
 #human-seat-details {
-  flex: 1;
+  flex-shrink: 0;
   min-width: 0;
 }
 #human-seat-stats {
@@ -616,18 +632,17 @@ body {
   flex-shrink: 0;
 }
 #human-seat-equip {
-  display: none;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+#human-seat-equip .equipment-area {
+  justify-content: center;
 }
 #human-equip-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: center;
-  padding: 6px 0;
-  border-bottom: 1px solid #5a3410;
-  margin-bottom: 6px;
+  display: none;
 }
-#human-equip-row:empty { display: none; }
 #human-hand {
   display: flex;
   gap: 8px;
@@ -714,11 +729,11 @@ body {
   border-radius: 2px 2px 0 0;
 }
 .mini-card-has-img .mini-card-name {
-  font-size: 0.42em;
-  padding: 0 1px;
+  font-size: 0.55em;
+  padding: 0 2px;
 }
 .mini-card-has-img .mini-card-range {
-  font-size: 0.38em;
+  font-size: 0.48em;
 }
 
 /* Card popup image */

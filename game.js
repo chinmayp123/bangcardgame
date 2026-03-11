@@ -428,9 +428,11 @@ function doDrawPhase() {
     return;
   }
 
-  // Normal draw
-  drawForPlayer(G.humanIdx, 2);
-  afterDrawPhase(G.humanIdx);
+  // Normal draw with animation
+  animateDrawCards(G.humanIdx, 2, ()=>{
+    drawForPlayer(G.humanIdx, 2);
+    afterDrawPhase(G.humanIdx);
+  });
 }
 
 function drawForPlayer(pidx, count) {
@@ -771,15 +773,19 @@ function playCard(pidx, cardIdx, targetIdx) {
       break;
     case 'Stagecoach':
       remove();
-      drawForPlayer(pidx,2);
-      renderAll();
-      afterCardPlay(pidx);
+      animateDrawCards(pidx, 2, ()=>{
+        drawForPlayer(pidx,2);
+        renderAll();
+        afterCardPlay(pidx);
+      });
       break;
     case 'Wells Fargo':
       remove();
-      drawForPlayer(pidx,3);
-      renderAll();
-      afterCardPlay(pidx);
+      animateDrawCards(pidx, 3, ()=>{
+        drawForPlayer(pidx,3);
+        renderAll();
+        afterCardPlay(pidx);
+      });
       break;
     case 'Gatling Gun':
       remove();
@@ -896,19 +902,21 @@ function _playBangAfterBarrel(attackerIdx, defenderIdx, atk, def) {
     return;
   }
 
-  // AI defender
-  const needMisses = atk.char.key==='slab' ? 2 : 1;
-  const misses = aiGetMissCards(defenderIdx, needMisses);
-  if(misses.length>=needMisses){
-    misses.forEach(c=>{ const i=def.hand.indexOf(c); if(i!==-1){def.hand.splice(i,1); discardCard(c);} });
-    addLog(`${def.name} plays MISS!`,'log-good');
-    showMissPopup(def.name);
-    renderAll();
-    afterCardPlay(attackerIdx);
-  } else {
-    addLog(`${def.name} is hit!`,'log-bad');
-    dealDamage(defenderIdx,1,attackerIdx,()=>{ renderAll(); afterCardPlay(attackerIdx); });
-  }
+  // AI defender — delay so BANG! popup is visible before response
+  setTimeout(()=>{
+    const needMisses = atk.char.key==='slab' ? 2 : 1;
+    const misses = aiGetMissCards(defenderIdx, needMisses);
+    if(misses.length>=needMisses){
+      misses.forEach(c=>{ const i=def.hand.indexOf(c); if(i!==-1){def.hand.splice(i,1); discardCard(c);} });
+      addLog(`${def.name} plays MISS!`,'log-good');
+      showMissPopup(def.name);
+      renderAll();
+      setTimeout(()=>afterCardPlay(attackerIdx), 1800);
+    } else {
+      addLog(`${def.name} is hit!`,'log-bad');
+      dealDamage(defenderIdx,1,attackerIdx,()=>{ renderAll(); afterCardPlay(attackerIdx); });
+    }
+  }, 1400);
 }
 
 function aiGetMissCards(pidx, count) {
@@ -1585,8 +1593,10 @@ function aiDrawPhase(pidx) {
       return;
     }
   }
-  drawForPlayer(pidx,2);
-  afterDrawPhase(pidx);
+  animateDrawCards(pidx, 2, ()=>{
+    drawForPlayer(pidx,2);
+    afterDrawPhase(pidx);
+  });
 }
 
 function aiCardValue(card, pidx) {
@@ -2087,8 +2097,8 @@ function renderHumanInfo() {
   p.inPlay.forEach(c=>{
     const mImg=CARD_IMGS[c.name];
     equipHtml+=mImg
-      ? `<div class="mini-card mini-card-has-img" style="width:44px;height:60px"><img src="${mImg}" class="mini-card-img"><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`
-      : `<div class="mini-card${isRed(c.suit)?' mini-red':''}" style="width:44px;height:60px"><div class="mini-card-val${isRed(c.suit)?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`;
+      ? `<div class="mini-card mini-card-has-img" style="width:62px;height:82px"><img src="${mImg}" class="mini-card-img"><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`
+      : `<div class="mini-card${isRed(c.suit)?' mini-red':''}" style="width:62px;height:82px"><div class="mini-card-val${isRed(c.suit)?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`;
   });
   document.getElementById('human-equip').innerHTML=equipHtml;
   document.getElementById('human-equip-row').innerHTML=equipHtml;
@@ -2234,6 +2244,46 @@ function setStatus(msg) {
   document.getElementById('status-msg').textContent=msg;
 }
 
+function animateDrawCards(pidx, count, callback) {
+  const drawPile=document.getElementById('draw-pile');
+  if(!drawPile){ if(callback) callback(); return; }
+  const fromRect=drawPile.getBoundingClientRect();
+
+  const p=G.players[pidx];
+  // Determine target element
+  const targetEl=p.isHuman
+    ? document.getElementById('human-hand')
+    : document.getElementById(`opp-box-${pidx}`);
+  if(!targetEl){ if(callback) callback(); return; }
+  const toRect=targetEl.getBoundingClientRect();
+
+  for(let i=0;i<count;i++){
+    setTimeout(()=>{
+      const card=document.createElement('div');
+      card.className='card-fly-draw';
+      card.innerHTML='<span style="font-size:1.6em;color:#f5c518">✶</span>';
+      card.style.left=fromRect.left+'px';
+      card.style.top=fromRect.top+'px';
+      card.style.width=fromRect.width+'px';
+      card.style.height=fromRect.height+'px';
+      document.body.appendChild(card);
+
+      card.getBoundingClientRect();
+      const tx=toRect.left+toRect.width/2-fromRect.width/2;
+      const ty=toRect.top+toRect.height/2-fromRect.height/2;
+      card.style.transition='left 0.4s ease-out, top 0.4s ease-out, opacity 0.15s ease-in 0.3s, transform 0.4s ease-out';
+      card.style.left=tx+'px';
+      card.style.top=ty+'px';
+      card.style.opacity='0';
+      card.style.transform='scale(0.6) rotate(-8deg)';
+
+      setTimeout(()=>card.remove(), 500);
+    }, i*180);
+  }
+  // Callback after all cards finish flying
+  setTimeout(()=>{ if(callback) callback(); }, count*180+450);
+}
+
 function flyCardToDiscard(fromRect, cardName, isBlue) {
   if(!fromRect) return;
   const discardEl=document.getElementById('discard-pile');
@@ -2303,7 +2353,7 @@ function showCardPopup(playerName, cardName) {
 function showPlayerCardPopup(pidx, cardName) {
   const p=G.players[pidx];
   const anchor=p.isHuman
-    ? document.getElementById('left-panel')
+    ? document.getElementById('human-area')
     : document.getElementById(`opp-box-${pidx}`);
   if(!anchor) return;
   const rect=anchor.getBoundingClientRect();
@@ -2313,10 +2363,13 @@ function showPlayerCardPopup(pidx, cardName) {
   const visual = imgSrc ? `<img src="${imgSrc}" class="pcb-card-img">` : `<span class="pcb-icon">${icon}</span>`;
   const badge=document.createElement('div');
   badge.className='player-card-badge';
-  badge.style.top=rect.top+'px';
-  badge.style.left=rect.left+'px';
-  badge.style.width=rect.width+'px';
-  badge.style.height=rect.height+'px';
+  // Center the badge over the anchor element
+  const bw=Math.min(rect.width, 140);
+  const bh=Math.min(rect.height, 120);
+  badge.style.top=(rect.top + (rect.height-bh)/2)+'px';
+  badge.style.left=(rect.left + (rect.width-bw)/2)+'px';
+  badge.style.width=bw+'px';
+  badge.style.height=bh+'px';
   badge.innerHTML=`${visual}<span class="pcb-name">${cardName}</span>`;
   overlay.appendChild(badge);
   setTimeout(()=>badge.remove(), 2200);
