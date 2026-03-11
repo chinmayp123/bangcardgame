@@ -5,9 +5,77 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BANG! - Wild West Card Game</title>
 <link rel="stylesheet" href="game.css">
+<link rel="stylesheet" href="dodge-city.css">
 <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&display=swap" rel="stylesheet">
 </head>
 <body>
+
+<!-- Title Screen -->
+<div id="title-screen">
+  <div class="title-dust"></div>
+  <div class="title-content">
+    <div class="title-logo">BANG!</div>
+    <div class="title-subtitle">The Wild West Card Game</div>
+    <div class="title-buttons">
+      <button class="title-btn title-btn-play" onclick="dismissTitleScreen()">Play Game</button>
+      <button class="title-btn title-btn-learn" onclick="showHowToPlay()">How to Play</button>
+    </div>
+  </div>
+  <div class="title-footer">Based on the card game by Emiliano Sciarra</div>
+</div>
+
+<!-- How to Play Screen -->
+<div id="howto-screen">
+  <div class="howto-box">
+    <div class="howto-title">How to Play</div>
+    <div class="howto-content">
+      <div class="howto-section">
+        <h3>The Story</h3>
+        <p>The Outlaws hunt the Sheriff. The Sheriff hunts the Outlaws. The Deputy protects the Sheriff. The Renegade wants to be the last one standing.</p>
+      </div>
+      <div class="howto-section">
+        <h3>Roles</h3>
+        <div class="howto-roles">
+          <div class="howto-role"><span class="howto-role-icon">⭐</span><strong>Sheriff</strong> — revealed at start. Wins when all Outlaws and Renegade are dead.</div>
+          <div class="howto-role"><span class="howto-role-icon">🛡️</span><strong>Deputy</strong> — hidden. Wins with the Sheriff.</div>
+          <div class="howto-role"><span class="howto-role-icon">🔴</span><strong>Outlaw</strong> — hidden. Wins when the Sheriff is dead.</div>
+          <div class="howto-role"><span class="howto-role-icon">💀</span><strong>Renegade</strong> — hidden. Must be the last player alive.</div>
+        </div>
+      </div>
+      <div class="howto-section">
+        <h3>Your Turn</h3>
+        <p><strong>1. Draw</strong> — Draw 2 cards from the deck.</p>
+        <p><strong>2. Play</strong> — Play any number of cards (but only 1 BANG! per turn unless your character says otherwise).</p>
+        <p><strong>3. Discard</strong> — End your turn. If you have more cards than your HP, you must discard down.</p>
+      </div>
+      <div class="howto-section">
+        <h3>Key Cards</h3>
+        <div class="howto-cards">
+          <p><strong>BANG!</strong> — Shoot a player in range. They must play a MISS! or lose 1 life.</p>
+          <p><strong>MISS!</strong> — Cancel a BANG! aimed at you.</p>
+          <p><strong>Beer</strong> — Recover 1 life point. Doesn't work with only 2 players left.</p>
+          <p><strong>Panic!</strong> — Steal a card from a player at distance 1.</p>
+          <p><strong>Cat Balou</strong> — Force any player to discard a card.</p>
+        </div>
+      </div>
+      <div class="howto-section">
+        <h3>Distance & Weapons</h3>
+        <p>Players sit in a circle. Your default range is 1 (only neighbors). Weapons increase your range. A <strong>Scope</strong> lets you see 1 farther. A <strong>Mustang</strong> makes others see you 1 farther away.</p>
+      </div>
+      <div class="howto-section">
+        <h3>Blue & Green Cards</h3>
+        <p><strong>Blue cards</strong> stay in play in front of you (weapons, Barrel, Jail, etc.).</p>
+        <p><strong>Green cards</strong> (Dodge City) are played face-up but can't be used until your next turn.</p>
+      </div>
+      <div class="howto-section">
+        <h3>Tips</h3>
+        <p>Watch who attacks whom — it reveals alliances. Protect the Sheriff if you're a Deputy. As an Outlaw, gang up on the Sheriff. As the Renegade, keep the balance until the end.</p>
+      </div>
+    </div>
+    <button class="title-btn title-btn-play" onclick="closeHowToPlay()">Back</button>
+  </div>
+</div>
+
 <div id="header">
   <h1>BANG!</h1>
   <div id="status-msg">Loading...</div>
@@ -126,5 +194,6 @@
 </div>
 
 <script src="game.js"></script>
+<script src="dodge-city.js"></script>
 </body>
 </html>

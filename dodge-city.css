@@ -1,0 +1,121 @@
+/* ===== DODGE CITY EXPANSION STYLES ===== */
+
+/* Green card styling */
+.card.green-card {
+  background: linear-gradient(160deg, #e8ffe8, #c0e8c0);
+  border-color: #4a8a4a;
+}
+.card.green-card.disabled { opacity: 0.4; }
+.card.green-card.selected {
+  border-color: #66dd66;
+  box-shadow: 0 0 20px rgba(102,221,102,0.7);
+}
+
+/* Mini green card */
+.mini-card.mini-green {
+  background: linear-gradient(160deg, #e0f5e0, #b8dab8);
+  border-color: #4a8a4a;
+}
+
+/* Green card badge for in-play green cards */
+.green-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #44cc44;
+  border: 1px solid #228822;
+  box-shadow: 0 0 4px rgba(68,204,68,0.6);
+}
+
+/* Green card "ready" glow when it can be activated */
+.mini-card.mini-green.ready {
+  box-shadow: 0 0 8px rgba(68,204,68,0.6), 1px 2px 5px rgba(0,0,0,0.5);
+  border-color: #66dd66;
+}
+
+/* "Not ready" indicator for green cards played this turn */
+.mini-card.mini-green.not-ready {
+  opacity: 0.6;
+}
+
+/* Expansion toggle in character select */
+.expansion-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: linear-gradient(135deg, #2e1a08, #1a0e04);
+  border: 2px solid #5a3410;
+  border-radius: 8px;
+  padding: 8px 20px;
+  flex-shrink: 0;
+}
+.expansion-toggle-label {
+  font-family: 'Rye', serif;
+  color: #f5c518;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.expansion-toggle-btn {
+  display: flex;
+  gap: 8px;
+}
+.exp-btn {
+  padding: 6px 14px;
+  border-radius: 5px;
+  border: 2px solid #5a3410;
+  background: linear-gradient(to bottom, #3a1e08, #200e04);
+  color: #d4a450;
+  font-size: 0.85em;
+  font-weight: bold;
+  cursor: pointer;
+  font-family: 'Special Elite', serif;
+  transition: all 0.15s;
+}
+.exp-btn:hover { border-color: #c49a30; background: linear-gradient(to bottom, #5a2e0c, #2e1608); }
+.exp-btn.picked {
+  border-color: #f5c518;
+  background: linear-gradient(to bottom, #6a3a10, #3a1e08);
+  color: #f5c518;
+  box-shadow: 0 0 8px rgba(245,197,24,0.4);
+}
+
+/* DC badge on character name */
+.char-dc-badge {
+  display: inline-block;
+  font-family: 'Special Elite', serif;
+  font-size: 0.7em;
+  font-style: normal;
+  font-weight: bold;
+  color: #44cc44;
+  background: rgba(68,204,68,0.12);
+  border: 1px solid #44cc44;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 5px;
+  vertical-align: middle;
+  letter-spacing: 0.5px;
+}
+
+/* Expanded character grid for DC (31 characters) */
+.char-grid.char-grid-expanded {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* Discard cost indicator */
+.discard-cost-badge {
+  font-size: 0.6em;
+  color: #ff6644;
+  font-weight: bold;
+  text-align: center;
+  line-height: 1;
+}
+
+/* Card fly for green cards */
+.card-fly.card-fly-green {
+  background: linear-gradient(160deg, #e8ffe8, #c0e8c0);
+  border-color: #4a8a4a;
+}

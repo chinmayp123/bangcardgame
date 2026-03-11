@@ -267,7 +267,6 @@ function startGame(humanCharIdx, playerCount) {
   G.selectedCard = null;
 
   const roles = assignRoles(playerCount);
-  const humanRole = roles[0];
 
   // Pick characters for players
   const shuffledChars = shuffle([...CHARACTERS]);
@@ -275,7 +274,7 @@ function startGame(humanCharIdx, playerCount) {
   // Human gets chosen char
   playerChars[0] = CHARACTERS[humanCharIdx];
 
-  const names = ['You','Billy','Dakota','Rosa','Colt','Tex','Hank'];
+  const names = ['You','Billy','Dakota','Rosa','Colt','Tex','Hank','Jake'];
   G.players = [];
   for(let i=0;i<playerCount;i++){
     const char = playerChars[i];
@@ -333,6 +332,12 @@ function beginTurn(playerIdx) {
   if(!p.alive) { nextTurn(); return; }
 
   addLog(`--- ${p.name}'s turn (${p.char.name}) ---`,'log-system');
+
+  // DC: Mark green cards as ready, Vera Custer picks ability
+  if(typeof markGreenCardsReady==='function') markGreenCardsReady(playerIdx);
+  if(typeof aiVeraCuster==='function' && !p.isHuman && p.char.key==='vera') aiVeraCuster(playerIdx);
+  // Clear Vera copy from last turn
+  if(p._veraAbility && p.char.key==='vera') { /* keep it until end of this turn */ }
 
   // Handle Dynamite
   const dynIdx = p.inPlay.findIndex(c=>c.dynamite);
@@ -428,6 +433,57 @@ function doDrawPhase() {
     return;
   }
 
+  // DC characters
+  if(typeof DC_ENABLED!=='undefined'&&DC_ENABLED){
+    // Bill Noface: draws 1 + wounds
+    if(p.char.key==='bill'){
+      const wounds=p.maxHp-p.hp;
+      const count=1+wounds;
+      animateDrawCards(G.humanIdx, count, ()=>{
+        billNofaceDraw(G.humanIdx);
+        afterDrawPhase(G.humanIdx);
+      });
+      return;
+    }
+    // Pixie Pete: draws 3
+    if(p.char.key==='pixie'){
+      animateDrawCards(G.humanIdx, 3, ()=>{
+        pixiePeteDraw(G.humanIdx);
+        afterDrawPhase(G.humanIdx);
+      });
+      return;
+    }
+    // Pat Brennan: option to steal in-play card
+    if(p.char.key==='pat'){
+      const inPlayCards=[];
+      G.players.forEach(q=>{
+        if(q.alive&&q.idx!==G.humanIdx) q.inPlay.forEach(c=>inPlayCards.push({card:c,owner:q}));
+      });
+      if(inPlayCards.length>0){
+        showModal('Pat Brennan — Draw Phase',
+          `<div style="margin-bottom:8px">Steal a card in play from any player, OR draw 2 cards normally.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+            ${inPlayCards.map((item,i)=>`<button class="btn" onclick="patBrennanSteal(${i})" style="font-size:0.85em">${item.card.name} (${item.owner.name})</button>`).join('')}
+          </div>`,
+          [{label:'Draw Normally',fn:()=>{ closeModal(); animateDrawCards(G.humanIdx,2,()=>{ drawForPlayer(G.humanIdx,2); afterDrawPhase(G.humanIdx); }); }}]
+        );
+        window.patBrennanSteal=function(idx){
+          const item=inPlayCards[idx];
+          if(item){
+            item.owner.inPlay.splice(item.owner.inPlay.indexOf(item.card),1);
+            p.hand.push(item.card);
+            addLog(`You take ${item.card.name} from ${item.owner.name} (Pat Brennan).`,'log-info');
+          }
+          closeModal();
+          afterDrawPhase(G.humanIdx);
+        };
+        return;
+      }
+    }
+    // Chuck Wengam: option to lose life for cards (shown as button)
+    // Handled via the Sid-like ability button
+  }
+
   // Normal draw with animation
   animateDrawCards(G.humanIdx, 2, ()=>{
     drawForPlayer(G.humanIdx, 2);
@@ -471,7 +527,7 @@ function afterDrawPhase(pidx) {
 function endTurn() {
   if(G.phase!=='play') return;
   const p = G.players[G.humanIdx];
-  const maxHand = p.hp;
+  const maxHand = (typeof getHandLimit==='function') ? getHandLimit(G.humanIdx) : p.hp;
   if(p.hand.length > maxHand){
     setStatus(`Discard down to ${maxHand} cards (you have ${p.hand.length}).`);
     G.phase = 'discard';
@@ -530,7 +586,8 @@ function forceEndTurn() {
   addLog('Time\'s up! Turn auto-ended.','log-bad');
   const p = G.players[G.humanIdx];
   // Auto-discard excess cards randomly
-  while(p.hand.length > p.hp) {
+  const _forceMax=(typeof getHandLimit==='function')?getHandLimit(G.humanIdx):p.hp;
+  while(p.hand.length > _forceMax) {
     const ri = Math.floor(Math.random() * p.hand.length);
     const card = p.hand.splice(ri, 1)[0];
     discardCard(card);
@@ -581,6 +638,7 @@ function getRange(pidx) {
   }
   let bonus = 0;
   if(p.inPlay.some(c=>c.name==='Scope')) bonus++;
+  if(p.inPlay.some(c=>c.name==='Binocular')) bonus++;
   if(p.char.key==='rose') bonus++;
   return base + bonus;
 }
@@ -588,7 +646,11 @@ function getRange(pidx) {
 function effectiveDistance(fromIdx, toIdx) {
   let dist = tableDistance(fromIdx, toIdx);
   const to = G.players[toIdx];
-  if(to.inPlay.some(c=>c.name==='Mustang')) dist++;
+  const belleActive = typeof isBelleStarTurn==='function' && isBelleStarTurn();
+  if(!belleActive) {
+    if(to.inPlay.some(c=>c.name==='Mustang')) dist++;
+    if(to.inPlay.some(c=>c.name==='Hideout')) dist++;
+  }
   if(to.char.key==='paul') dist++;
   return dist;
 }
@@ -658,6 +720,9 @@ function eliminatePlayer(pidx, killerIdx, callback) {
     s.hand=[]; s.inPlay=[];
   }
 
+  // DC: Greg Digger / Herb Hunter
+  if(typeof dcOnElimination==='function') dcOnElimination(pidx);
+
   renderAll();
   checkWinCondition();
   if(callback&&!G.gameOver) callback();
@@ -669,7 +734,6 @@ function checkWinCondition() {
   const sheriff = G.players.find(p=>p.role==='sheriff');
   const outlaws = G.players.filter(p=>p.role==='outlaw'&&p.alive);
   const renegade = G.players.find(p=>p.role==='renegade');
-  const deputies = G.players.filter(p=>p.role==='deputy'&&p.alive);
 
   if(!sheriff||!sheriff.alive){
     // Renegade wins if last standing
@@ -732,15 +796,41 @@ function playCard(pidx, cardIdx, targetIdx) {
   }
 
   // Show popup only when card will actually be played (not on target-prompt early-returns)
-  const needsTarget = ['BANG!','Panic!','Cat Balou','Duel'].includes(card.name);
+  const needsTarget = ['BANG!','Panic!','Cat Balou','Duel','Punch','Springfield','Rag Time','Tequila'].includes(card.name);
   if(card.name!=='MISS!' && (!needsTarget || (targetIdx!==undefined && targetIdx!==null))){
     showCardPopup(p.name, card.name);
     flyCardToDiscard(_flyRect, card.name, card.type==='blue');
   }
 
+  // Green cards: place in front, don't play immediately
+  if(card.type==='green'){
+    playGreenCard(pidx, cardIdx);
+    return;
+  }
+
   if(card.equip){
     playEquipment(pidx, cardIdx, targetIdx);
     return;
+  }
+
+  // DC discard-cost cards
+  if(card.discardCost && typeof card.discardCost==='number'){
+    if(!p.isHuman){
+      // AI handles discard cost in aiPlayDCCard
+    } else if(!card._costPaid){
+      // Human: need to select cost card first
+      // For now, auto-discard cheapest card as cost
+      const others=p.hand.filter((_,i)=>i!==cardIdx);
+      if(others.length===0){ addLog('Not enough cards to pay cost.','log-info'); return; }
+      const sorted=[...others].sort((a,b)=>(a.name==='MISS!'?100:0)-(b.name==='MISS!'?100:0));
+      const costCard=sorted[0];
+      p.hand.splice(p.hand.indexOf(costCard),1);
+      discardCard(costCard);
+      addLog(`Discarded ${costCard.name} as cost.`,'log-info');
+      // Recalculate cardIdx since hand shifted
+      cardIdx=p.hand.indexOf(card);
+      if(cardIdx===-1) return;
+    }
   }
 
   const remove = ()=>{ p.hand.splice(cardIdx,1); discardCard(card); };
@@ -763,8 +853,9 @@ function playCard(pidx, cardIdx, targetIdx) {
       if(alivePlayers().length<=2){
         addLog(`${p.name} tries Beer but only 2 players left — no effect.`,'log-info');
       } else if(p.hp<p.maxHp){
-        p.hp++;
-        addLog(`${p.name} drinks Beer. +1 life (${p.hp}/${p.maxHp}).`,'log-good');
+        const beerHeal = (typeof getTequilaJoeHeal==='function') ? getTequilaJoeHeal(pidx) : 1;
+        p.hp=Math.min(p.maxHp, p.hp+beerHeal);
+        addLog(`${p.name} drinks Beer. +${beerHeal} life (${p.hp}/${p.maxHp}).`,'log-good');
       } else {
         addLog(`${p.name} drinks Beer but is already at full health.`,'log-info');
       }
@@ -828,6 +919,53 @@ function playCard(pidx, cardIdx, targetIdx) {
     case 'General Store':
       remove();
       playGeneralStore(pidx);
+      break;
+    // === DODGE CITY CARDS ===
+    case 'Punch':
+      if(targetIdx===undefined||targetIdx===null){
+        promptTarget(pidx, cardIdx,'punch'); return;
+      }
+      remove();
+      playPunch(pidx, targetIdx);
+      break;
+    case 'Springfield':
+      if(targetIdx===undefined||targetIdx===null){
+        promptTarget(pidx, cardIdx,'springfield'); return;
+      }
+      remove();
+      playSpringfield(pidx, targetIdx);
+      break;
+    case 'Rag Time':
+      if(targetIdx===undefined||targetIdx===null){
+        promptTarget(pidx, cardIdx,'ragtime'); return;
+      }
+      remove();
+      playRagTime(pidx, targetIdx);
+      break;
+    case 'Tequila':
+      if(targetIdx===undefined||targetIdx===null){
+        promptTarget(pidx, cardIdx,'tequilacard'); return;
+      }
+      remove();
+      playTequilaCard(pidx, targetIdx);
+      renderAll();
+      afterCardPlay(pidx);
+      break;
+    case 'Whisky':
+      remove();
+      playWhisky(pidx);
+      renderAll();
+      afterCardPlay(pidx);
+      break;
+    case 'Brawl':
+      remove();
+      playBrawl(pidx);
+      renderAll();
+      afterCardPlay(pidx);
+      break;
+    case 'Dodge':
+      // Defensive only — shouldn't be played proactively
+      addLog(`${p.name} cannot play Dodge proactively.`,'log-info');
       break;
     default:
       addLog(`${p.name} plays ${card.name}.`,'log-action');
@@ -907,7 +1045,11 @@ function _playBangAfterBarrel(attackerIdx, defenderIdx, atk, def) {
     const needMisses = atk.char.key==='slab' ? 2 : 1;
     const misses = aiGetMissCards(defenderIdx, needMisses);
     if(misses.length>=needMisses){
-      misses.forEach(c=>{ const i=def.hand.indexOf(c); if(i!==-1){def.hand.splice(i,1); discardCard(c);} });
+      misses.forEach(c=>{
+        const hi=def.hand.indexOf(c);
+        if(hi!==-1){ def.hand.splice(hi,1); discardCard(c); }
+        else if(c.isGreen && def.inPlay){ const gi=def.inPlay.indexOf(c); if(gi!==-1){ def.inPlay.splice(gi,1); discardCard(c); } }
+      });
       addLog(`${def.name} plays MISS!`,'log-good');
       showMissPopup(def.name);
       renderAll();
@@ -922,12 +1064,24 @@ function _playBangAfterBarrel(attackerIdx, defenderIdx, atk, def) {
 function aiGetMissCards(pidx, count) {
   const p = G.players[pidx];
   const isCJ = p.char.key==='janet';
-  return p.hand.filter(c=>c.name==='MISS!'||(isCJ&&c.name==='BANG!')).slice(0,count);
+  const isElena = typeof isElenaFuente==='function' && isElenaFuente(pidx);
+  let cards = p.hand.filter(c=>c.name==='MISS!'||c.isDodge||(isCJ&&c.name==='BANG!')||(isElena));
+  // Also check ready green MISS! cards in play
+  if(p.inPlay){
+    const greenMiss = p.inPlay.filter(c=>c.isGreen&&c.greenReady&&c.name==='MISS!');
+    cards = cards.concat(greenMiss);
+  }
+  return cards.slice(0,count);
 }
 
 function hasMissCard(pidx) {
   const p = G.players[pidx];
-  return p.hand.some(c=>c.name==='MISS!'||(p.char.key==='janet'&&c.name==='BANG!'));
+  const isCJ = p.char.key==='janet';
+  const isElena = typeof isElenaFuente==='function' && isElenaFuente(pidx);
+  if(isElena && p.hand.length>0) return true;
+  if(p.hand.some(c=>c.name==='MISS!'||c.isDodge||(isCJ&&c.name==='BANG!'))) return true;
+  if(p.inPlay && p.inPlay.some(c=>c.isGreen&&c.greenReady&&c.name==='MISS!')) return true;
+  return false;
 }
 
 // Gatling
@@ -969,7 +1123,9 @@ function _gatlingHitDef(def, attackerIdx, nextTarget) {
   }
   if(hasMissCard(def.idx)){
     const mc=aiGetMissCards(def.idx,1)[0];
-    def.hand.splice(def.hand.indexOf(mc),1); discardCard(mc);
+    const mhi=def.hand.indexOf(mc);
+    if(mhi!==-1){ def.hand.splice(mhi,1); discardCard(mc); }
+    else if(mc.isGreen&&def.inPlay){ const gi=def.inPlay.indexOf(mc); if(gi!==-1){def.inPlay.splice(gi,1); discardCard(mc);} }
     addLog(`${def.name} dodges Gatling!`,'log-good');
     showPlayerCardPopup(def.idx,'MISS!');
     setTimeout(nextTarget, 800);
@@ -1022,7 +1178,7 @@ function playPanic(attackerIdx, targetIdx) {
     return;
   }
   if(G.players[attackerIdx].isHuman){
-    promptStealFrom(attackerIdx, targetIdx, 'panic');
+    promptCardAction(attackerIdx, targetIdx, true);
     return;
   }
   // AI: show target badge then resolve after delay
@@ -1052,7 +1208,7 @@ function playCatBalou(attackerIdx, targetIdx) {
     return;
   }
   if(G.players[attackerIdx].isHuman){
-    promptDiscardFrom(attackerIdx, targetIdx);
+    promptCardAction(attackerIdx, targetIdx, false);
     return;
   }
   // AI: show target badge then resolve after delay
@@ -1272,88 +1428,86 @@ function showResponsePrompt(msg, defenderIdx) {
   const pr=G.pendingResponse;
 
   if(pr.type==='bang'||pr.type==='gatling'){
-    // Can play MISS! (or BANG! if Calamity Janet)
-    const missCards=def.hand.filter(c=>c.name==='MISS!'||(def.char.key==='janet'&&c.name==='BANG!'));
-    // Beer if possible
-    const beerCards=def.hand.filter(c=>c.name==='Beer');
+    const isJanet=def.char.key==='janet'||(def._veraAbility==='janet');
+    const isElena=typeof isElenaFuente==='function'&&isElenaFuente(defenderIdx);
 
-    missCards.forEach((c,i)=>{
-      const b=document.createElement('button');
-      b.className='btn primary';
-      b.textContent=`Play ${c.name} (${valName(c.value)}${suitSym(c.suit)})`;
-      b.onclick=()=>{
-        pr.missesSoFar++;
+    // Helper: handle miss response (shared by all miss-type buttons)
+    function onMissPlayed(logMsg){
+      pr.missesSoFar++;
+      addLog(logMsg,'log-good');
+      if(typeof mollyStarkCheck==='function') mollyStarkCheck(defenderIdx, 'MISS!');
+      if(pr.missesSoFar>=pr.needMisses){
+        if(pr.type==='bang') showMissPopup(def.name);
+        hideResponse(); G.phase='play'; pr.onDodge();
+      } else {
+        showResponsePrompt(`Play 1 more MISS! (Slab the Killer)`, defenderIdx);
+      }
+    }
+    function addMissBtn(label, cls, onclick){ const b=document.createElement('button'); b.className=cls; b.textContent=label; b.onclick=onclick; btns.appendChild(b); }
+
+    // Regular MISS!/BANG!-as-MISS cards
+    def.hand.filter(c=>c.name==='MISS!'||(isJanet&&c.name==='BANG!')).forEach(c=>{
+      addMissBtn(`Play ${c.name} (${valName(c.value)}${suitSym(c.suit)})`, 'btn primary', ()=>{
         def.hand.splice(def.hand.indexOf(c),1); discardCard(c);
-        addLog(`You play ${c.name}!`,'log-good');
-        if(pr.missesSoFar>=pr.needMisses){
-          if(pr.type==='bang') showMissPopup(def.name);
-          hideResponse(); G.phase='play'; pr.onDodge();
-        } else {
-          showResponsePrompt(`Play 1 more MISS! (Slab the Killer)`, defenderIdx);
-        }
-      };
-      btns.appendChild(b);
+        onMissPlayed(`You play ${c.name}!`);
+      });
     });
-
+    // Dodge cards
+    def.hand.filter(c=>c.isDodge).forEach(c=>{
+      addMissBtn(`Play Dodge (${valName(c.value)}${suitSym(c.suit)}) — Miss + Draw`, 'btn primary', ()=>{
+        def.hand.splice(def.hand.indexOf(c),1); discardCard(c);
+        const drawn=drawTop(); if(drawn) def.hand.push(drawn);
+        onMissPlayed(`You play Dodge! Miss + draw 1 card.`);
+      });
+    });
+    // Green MISS! cards
+    if(typeof DC_ENABLED!=='undefined'&&DC_ENABLED){
+      def.inPlay.filter(c=>c.greenMiss&&c.greenReady).forEach(c=>{
+        addMissBtn(`Use ${c.name} (green)`, 'btn primary', ()=>{
+          useGreenMissCard(defenderIdx, def.inPlay.indexOf(c));
+          onMissPlayed(`You use ${c.name} as Missed!`);
+        });
+      });
+    }
+    // Elena Fuente: any card as MISS!
+    if(isElena) def.hand.filter(c=>c.name!=='MISS!'&&!c.isDodge&&!(isJanet&&c.name==='BANG!')).forEach(c=>{
+      addMissBtn(`Use ${c.name} as Miss (Elena)`, 'btn', ()=>{
+        def.hand.splice(def.hand.indexOf(c),1); discardCard(c);
+        onMissPlayed(`You use ${c.name} as Missed! (Elena Fuente).`);
+      });
+    });
+    // Beer
     if(def.hp<def.maxHp||alivePlayers().length>2){
-      beerCards.forEach(c=>{
-        const b=document.createElement('button');
-        b.className='btn';
-        b.textContent=`Beer (+1 HP then take hit)`;
-        b.onclick=()=>{
+      def.hand.filter(c=>c.name==='Beer').forEach(c=>{
+        addMissBtn('Beer (+1 HP then take hit)', 'btn', ()=>{
           def.hand.splice(def.hand.indexOf(c),1); discardCard(c);
           if(def.hp<def.maxHp&&alivePlayers().length>2) def.hp++;
           addLog(`You drink Beer (+1 HP).`,'log-good');
           hideResponse(); G.phase='play';
           addLog(`You take the hit!`,'log-bad');
           dealDamage(defenderIdx,1,pr.attackerIdx,()=>{renderAll();afterCardPlay(pr.attackerIdx);});
-        };
-        btns.appendChild(b);
+        });
       });
     }
-
-    const take=document.createElement('button');
-    take.className='btn';
-    take.textContent='Take the Hit';
-    take.onclick=()=>{ hideResponse(); G.phase='play'; pr.onHit(); };
-    btns.appendChild(take);
+    addMissBtn('Take the Hit', 'btn', ()=>{ hideResponse(); G.phase='play'; pr.onHit(); });
   }
 
-  if(pr.type==='indians'){
-    const bangCards=def.hand.filter(c=>c.name==='BANG!'||(def.char.key==='janet'&&c.name==='MISS!'));
-    bangCards.forEach(c=>{
+  if(pr.type==='indians'||pr.type==='duel'){
+    const isDuel=pr.type==='duel';
+    def.hand.filter(c=>c.name==='BANG!'||(def.char.key==='janet'&&c.name==='MISS!')).forEach(c=>{
       const b=document.createElement('button');
       b.className='btn primary';
       b.textContent=`Play ${c.name} (${valName(c.value)}${suitSym(c.suit)})`;
       b.onclick=()=>{
         def.hand.splice(def.hand.indexOf(c),1); discardCard(c);
+        if(isDuel) addLog(`You play ${c.name} in the duel.`,'log-good');
         hideResponse(); G.phase='play'; pr.onDodge();
       };
       btns.appendChild(b);
     });
     const take=document.createElement('button');
     take.className='btn';
-    take.textContent='Take the Hit (-1 life)';
-    take.onclick=()=>{ hideResponse(); G.phase='play'; pr.onHit(); };
-    btns.appendChild(take);
-  }
-
-  if(pr.type==='duel'){
-    const bangCards=def.hand.filter(c=>c.name==='BANG!'||(def.char.key==='janet'&&c.name==='MISS!'));
-    bangCards.forEach(c=>{
-      const b=document.createElement('button');
-      b.className='btn primary';
-      b.textContent=`Play ${c.name} (${valName(c.value)}${suitSym(c.suit)})`;
-      b.onclick=()=>{
-        def.hand.splice(def.hand.indexOf(c),1); discardCard(c);
-        addLog(`You play ${c.name} in the duel.`,'log-good');
-        hideResponse(); G.phase='play'; pr.onDodge();
-      };
-      btns.appendChild(b);
-    });
-    const take=document.createElement('button');
-    take.className='btn';
-    take.textContent='Give Up (-1 life)';
+    take.textContent=isDuel?'Give Up (-1 life)':'Take the Hit (-1 life)';
     take.onclick=()=>{ hideResponse(); G.phase='play'; pr.onHit(); };
     btns.appendChild(take);
   }
@@ -1372,18 +1526,21 @@ function promptTarget(pidx, cardIdx, type) {
   G.pendingTargetAction = { cardIdx, type, card };
 
   // Determine valid targets
-  let validTargets=[];
-  if(type==='bang'){
-    validTargets=G.players.filter(p=>p.alive&&p.idx!==pidx&&canTarget(pidx,p.idx));
-  } else if(type==='panic'){
-    validTargets=G.players.filter(p=>p.alive&&p.idx!==pidx&&effectiveDistance(pidx,p.idx)<=1&&(p.hand.length>0||p.inPlay.length>0));
-  } else if(type==='catbalou'){
-    validTargets=G.players.filter(p=>p.alive&&p.idx!==pidx&&(p.hand.length>0||p.inPlay.length>0));
-  } else if(type==='duel'){
-    validTargets=G.players.filter(p=>p.alive&&p.idx!==pidx);
-  } else if(type==='jail'){
-    validTargets=G.players.filter(p=>p.alive&&p.idx!==pidx&&p.role!=='sheriff'&&!p.jailed);
-  }
+  const others=p=>p.alive&&p.idx!==pidx;
+  const hasCards=p=>p.hand.length>0||p.inPlay.length>0;
+  const inRange1=p=>effectiveDistance(pidx,p.idx)<=1;
+  const targetFilters={
+    bang:      p=>others(p)&&canTarget(pidx,p.idx),
+    panic:     p=>others(p)&&inRange1(p)&&hasCards(p),
+    catbalou:  p=>others(p)&&hasCards(p),
+    duel:      p=>others(p),
+    jail:      p=>others(p)&&p.role!=='sheriff'&&!p.jailed,
+    punch:     p=>others(p)&&inRange1(p),
+    springfield:p=>others(p),
+    ragtime:   p=>others(p)&&hasCards(p),
+    tequilacard:p=>p.alive&&p.hp<p.maxHp,
+  };
+  const validTargets=G.players.filter(targetFilters[type]||others);
 
   if(validTargets.length===0){
     addLog(`No valid targets for ${card.name}.`,'log-info');
@@ -1400,59 +1557,35 @@ function promptTarget(pidx, cardIdx, type) {
 
 function selectTarget(targetIdx) {
   if(!G.pendingTargetAction) return;
-  const {cardIdx,type}=G.pendingTargetAction;
+  const {cardIdx}=G.pendingTargetAction;
   G.pendingTargetAction=null;
-  // Re-find cardIdx (might have shifted? No, we haven't removed it yet)
   hideTargetBanner();
   playCard(G.humanIdx, cardIdx, targetIdx);
   setStatus('Play cards or End Turn.');
   renderAll();
 }
 
-function promptStealFrom(attackerIdx, targetIdx, type) {
+function promptCardAction(attackerIdx, targetIdx, isSteal) {
   const atk=G.players[attackerIdx], def=G.players[targetIdx];
+  const verb=isSteal?'steal':'discard', title=isSteal?'Panic!':'Cat Balou';
   const options=[];
   def.inPlay.forEach(c=>options.push({label:`[Table] ${c.name}`,card:c,fromPlay:true}));
   if(def.hand.length>0) options.push({label:`[Hand] Random card`,card:null,fromHand:true});
 
-  showModal(`Panic! — steal from ${def.name}`,
+  showModal(`${title} — ${verb} from ${def.name}`,
     options.map((o,i)=>`<div class="char-option" onclick="document.querySelectorAll('.char-option').forEach(x=>x.classList.remove('picked'));this.classList.add('picked');window._pickIdx=${i}">${o.label}</div>`).join(''),
-    [{label:'Steal', fn:()=>{
+    [{label:isSteal?'Steal':'Discard', fn:()=>{
       const idx=window._pickIdx||0;
       const opt=options[idx];
       if(opt.fromPlay){
-        const ci=def.inPlay.indexOf(opt.card);
-        def.inPlay.splice(ci,1); atk.hand.push(opt.card);
-        addLog(`You steal ${opt.card.name} from ${def.name}'s table.`,'log-good');
+        def.inPlay.splice(def.inPlay.indexOf(opt.card),1);
+        if(isSteal) atk.hand.push(opt.card); else discardCard(opt.card);
+        addLog(`You ${verb} ${opt.card.name} from ${def.name}'s table.`,'log-good');
       } else {
         const ri=Math.floor(Math.random()*def.hand.length);
-        const c=def.hand.splice(ri,1)[0]; atk.hand.push(c);
-        addLog(`You steal a card from ${def.name}'s hand.`,'log-good');
-      }
-      closeModal(); renderAll(); afterCardPlay(attackerIdx);
-    }},{label:'Cancel',fn:closeModal}]
-  );
-}
-
-function promptDiscardFrom(attackerIdx, targetIdx) {
-  const atk=G.players[attackerIdx], def=G.players[targetIdx];
-  const options=[];
-  def.inPlay.forEach(c=>options.push({label:`[Table] ${c.name}`,card:c,fromPlay:true}));
-  if(def.hand.length>0) options.push({label:`[Hand] Random card`,card:null,fromHand:true});
-
-  showModal(`Cat Balou — discard from ${def.name}`,
-    options.map((o,i)=>`<div class="char-option" onclick="document.querySelectorAll('.char-option').forEach(x=>x.classList.remove('picked'));this.classList.add('picked');window._pickIdx=${i}">${o.label}</div>`).join(''),
-    [{label:'Discard', fn:()=>{
-      const idx=window._pickIdx||0;
-      const opt=options[idx];
-      if(opt.fromPlay){
-        const ci=def.inPlay.indexOf(opt.card);
-        def.inPlay.splice(ci,1); discardCard(opt.card);
-        addLog(`You discard ${opt.card.name} from ${def.name}'s table.`,'log-good');
-      } else {
-        const ri=Math.floor(Math.random()*def.hand.length);
-        const c=def.hand.splice(ri,1)[0]; discardCard(c);
-        addLog(`You discard a card from ${def.name}'s hand.`,'log-good');
+        const c=def.hand.splice(ri,1)[0];
+        if(isSteal) atk.hand.push(c); else discardCard(c);
+        addLog(`You ${verb} a card from ${def.name}'s hand.`,'log-good');
       }
       closeModal(); renderAll(); afterCardPlay(attackerIdx);
     }},{label:'Cancel',fn:closeModal}]
@@ -1593,6 +1726,32 @@ function aiDrawPhase(pidx) {
       return;
     }
   }
+  // DC characters
+  if(typeof DC_ENABLED!=='undefined'&&DC_ENABLED){
+    if(p.char.key==='bill'){
+      const wounds=p.maxHp-p.hp;
+      const count=1+wounds;
+      animateDrawCards(pidx, count, ()=>{
+        billNofaceDraw(pidx);
+        afterDrawPhase(pidx);
+      });
+      return;
+    }
+    if(p.char.key==='pixie'){
+      animateDrawCards(pidx, 3, ()=>{
+        pixiePeteDraw(pidx);
+        afterDrawPhase(pidx);
+      });
+      return;
+    }
+    if(p.char.key==='pat'){
+      if(aiPatBrennan(pidx)){
+        drawForPlayer(pidx,0); // Pat chose to steal instead
+        afterDrawPhase(pidx);
+        return;
+      }
+    }
+  }
   animateDrawCards(pidx, 2, ()=>{
     drawForPlayer(pidx,2);
     afterDrawPhase(pidx);
@@ -1614,7 +1773,13 @@ function aiCardValue(card, pidx) {
   if(card.name==='Duel') return 5;
   if(card.weapon) return 6;
   if(card.name==='Barrel') return 5;
-  if(card.name==='Scope') return 4;
+  if(card.name==='Scope'||card.name==='Binocular') return 4;
+  if(card.name==='Hideout') return 4;
+  // DC card values
+  if(typeof aiDCCardValue==='function'){
+    const dcVal=aiDCCardValue(card,pidx);
+    if(dcVal>0) return dcVal;
+  }
   return 3;
 }
 
@@ -1652,9 +1817,6 @@ function aiPlayPhase(pidx) {
   if(p.role==='outlaw'||p.role==='renegade'){
     const jailCard=p.hand.find(c=>c.jail);
     if(jailCard){
-      const sheriff=G.players.find(q=>q.alive&&q.role==='sheriff'&&!q.jailed);
-      // Actually can't jail sheriff!
-      // Target: a deputy or someone
       const jailTarget=G.players.find(q=>q.alive&&q.idx!==pidx&&q.role!=='sheriff'&&!q.jailed&&(q.role==='deputy'));
       if(jailTarget) plays.push({card:jailCard,type:'jail',target:jailTarget.idx});
     }
@@ -1724,6 +1886,46 @@ function aiPlayPhase(pidx) {
     if(t!==null&&bangCount>=2) plays.push({card:duel,type:'duel',target:t});
   }
 
+  // DC expansion cards
+  if(typeof DC_ENABLED!=='undefined'&&DC_ENABLED){
+    // Green cards: play them to table
+    for(const card of p.hand){
+      if(card.type==='green'&&!p.inPlay.some(c=>c.name===card.name&&c.type==='green')){
+        plays.push({card,type:'greenplay'});
+      }
+    }
+    // Activate ready green cards
+    for(let i=0;i<p.inPlay.length;i++){
+      const c=p.inPlay[i];
+      if(c.type==='green'&&c.greenReady){
+        if(c.greenBang||c.greenGatling||c.greenPanic||c.greenCatBalou||c.greenBeer||(c.greenDraw&&!c.greenMiss)){
+          plays.push({card:c,type:'greenactivate',inPlayIdx:i});
+        }
+      }
+    }
+    // DC-specific brown cards
+    for(const card of p.hand){
+      if(typeof aiCanPlayDCCard==='function'&&aiCanPlayDCCard(card,pidx)){
+        if(card.punchCard) plays.push({card,type:'dccard'});
+        else if(card.springfieldCard) plays.push({card,type:'dccard'});
+        else if(card.brawlCard) plays.push({card,type:'dccard'});
+        else if(card.whiskyCard&&p.hp<=2) plays.push({card,type:'dccard'});
+        else if(card.ragTimeCard) plays.push({card,type:'dccard'});
+        else if(card.tequilaCard&&p.hp<=2) plays.push({card,type:'dccard'});
+      }
+    }
+    // DC character abilities
+    if(p.char.key==='chuck'&&p.hp>2) aiChuckWengam(pidx);
+    if(p.char.key==='jose') aiJoseDelgado(pidx);
+    if(p.char.key==='doc'&&p.hand.length>=4) aiDocHolyday(pidx);
+  }
+
+  // Binocular/Hideout equips
+  for(const card of p.hand){
+    if(card.equip&&card.name==='Binocular'&&!p.inPlay.some(c=>c.name==='Binocular')) plays.push({card,type:'equip'});
+    if(card.equip&&card.name==='Hideout'&&!p.inPlay.some(c=>c.name==='Hideout')) plays.push({card,type:'equip'});
+  }
+
   // Execute plays sequentially with delays
   let pi=0;
   function doNextPlay(){
@@ -1766,6 +1968,35 @@ function aiPlayPhase(pidx) {
         playCard(pidx,ci,play.target);
       },500);
       return;
+    } else if(play.type==='greenplay'){
+      // Place green card in front
+      renderAll();
+      setTimeout(()=>{
+        const ci=p.hand.indexOf(play.card);
+        if(ci===-1){doNextPlay();return;}
+        playGreenCard(pidx,ci);
+        setTimeout(doNextPlay,600);
+      },500);
+      return;
+    } else if(play.type==='greenactivate'){
+      // Activate a ready green card from inPlay
+      renderAll();
+      setTimeout(()=>{
+        const idx=p.inPlay.indexOf(play.card);
+        if(idx===-1){doNextPlay();return;}
+        G._afterPlay=()=>{ setTimeout(doNextPlay,900); };
+        activateGreenCard(pidx,idx);
+      },500);
+      return;
+    } else if(play.type==='dccard'){
+      // DC brown card
+      renderAll();
+      setTimeout(()=>{
+        if(!p.hand.includes(play.card)){doNextPlay();return;}
+        G._afterPlay=()=>{ setTimeout(doNextPlay,900); };
+        aiPlayDCCard(pidx,play.card);
+      },500);
+      return;
     }
     doNextPlay();
   }
@@ -1777,7 +2008,7 @@ function aiEndTurn(pidx) {
   const p=G.players[pidx];
   if(!p.alive){nextTurn();return;}
   // Discard excess
-  const maxHand=p.hp;
+  const maxHand=(typeof getHandLimit==='function')?getHandLimit(pidx):p.hp;
   while(p.hand.length>maxHand){
     // Discard least valuable
     const sorted=[...p.hand].sort((a,b)=>aiCardValue(a,pidx)-aiCardValue(b,pidx));
@@ -1878,7 +2109,20 @@ function canPlayCardHuman(idx) {
   if(card.name==='BANG!'&&!canPlayBang(G.humanIdx)) return false;
   // MISS! is defensive only — cannot be played on your active turn
   if(card.name==='MISS!') return false;
+  // Dodge is defensive only
+  if(card.isDodge) return false;
   if(card.name==='Beer'&&(p.hp>=p.maxHp||alivePlayers().length<=2)) return false;
+  // Green cards: always playable (placed in front), unless duplicate already in play
+  if(card.type==='green') {
+    if(p.inPlay.some(c=>c.name===card.name&&c.type==='green')) return false;
+    return true;
+  }
+  // Discard-cost cards: need at least 2 cards (the card itself + 1 to discard)
+  if(card.discardCost && p.hand.length < 2) return false;
+  // Punch: need target at range 1
+  if(card.punchCard) return G.players.some(q=>q.alive&&q.idx!==G.humanIdx&&effectiveDistance(G.humanIdx,q.idx)<=1);
+  // Whisky: need to be hurt
+  if(card.whiskyCard) return p.hp < p.maxHp;
   return true;
 }
 
@@ -1890,7 +2134,8 @@ function playSelectedCard() {
     discardCard(card);
     G.selectedCard=null;
     document.getElementById('card-info-box').style.display='none';
-    if(p.hand.length<=p.hp){ doEndTurn(G.humanIdx); }
+    const _maxH=(typeof getHandLimit==='function')?getHandLimit(G.humanIdx):p.hp;
+    if(p.hand.length<=_maxH){ doEndTurn(G.humanIdx); }
     renderAll();
     return;
   }
@@ -2009,7 +2254,17 @@ const HEX_SEATS = {
   4: [{cx:14,  top:45},  {cx:38,  top:5},  {cx:62,  top:5},  {cx:86,  top:45}],
   5: [{cx:12,  top:70},  {cx:30,  top:18}, {cx:50,  top:4},  {cx:70,  top:18}, {cx:88,  top:70}],
   6: [{cx:12,  top:70},  {cx:27,  top:20}, {cx:43,  top:4},  {cx:57,  top:4},  {cx:73,  top:20}, {cx:88,  top:70}],
+  7: [{cx:10,  top:70},  {cx:23,  top:28}, {cx:38,  top:5},  {cx:50,  top:2},  {cx:62,  top:5},  {cx:77,  top:28}, {cx:90,  top:70}],
 };
+
+function buildMiniCardHtml(c, extraAttr) {
+  const mImg=CARD_IMGS[c.name];
+  const greenCls=c.type==='green'?(c.greenReady?' mini-green ready':' mini-green not-ready'):'';
+  const attr=extraAttr||'';
+  return mImg
+    ? `<div class="mini-card mini-card-has-img${greenCls}" ${attr}><img src="${mImg}" class="mini-card-img"><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`
+    : `<div class="mini-card${isRed(c.suit)?' mini-red':''}${greenCls}" ${attr}><div class="mini-card-val${isRed(c.suit)?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`;
+}
 
 function renderOpponents(targetableIds) {
   const area=document.getElementById('opponents-area');
@@ -2051,12 +2306,7 @@ function renderOpponents(targetableIds) {
 
     // Mini equipment cards on placemat
     let equipHtml='<div class="placemat-equip">';
-    p.inPlay.forEach(c=>{
-      const mImg=CARD_IMGS[c.name];
-      equipHtml+=mImg
-        ? `<div class="mini-card mini-card-has-img"><img src="${mImg}" class="mini-card-img"><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`
-        : `<div class="mini-card${isRed(c.suit)?' mini-red':''}"><div class="mini-card-val${isRed(c.suit)?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`;
-    });
+    p.inPlay.forEach(c=>{ equipHtml+=buildMiniCardHtml(c); });
     equipHtml+='</div>';
 
     div.innerHTML=`
@@ -2095,13 +2345,12 @@ function renderHumanInfo() {
   document.getElementById('human-range-stat').textContent=`Range: ${getRange(G.humanIdx)} | HP: ${p.hp}/${p.maxHp}`;
   let equipHtml='';
   p.inPlay.forEach(c=>{
-    const mImg=CARD_IMGS[c.name];
-    equipHtml+=mImg
-      ? `<div class="mini-card mini-card-has-img" style="width:62px;height:82px"><img src="${mImg}" class="mini-card-img"><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`
-      : `<div class="mini-card${isRed(c.suit)?' mini-red':''}" style="width:62px;height:82px"><div class="mini-card-val${isRed(c.suit)?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`;
+    const clickAttr=c.type==='green'&&c.greenReady&&G.phase==='play'&&G.turn===G.humanIdx
+      ?`onclick="activateGreenCardHuman(${p.inPlay.indexOf(c)})" style="width:62px;height:82px;cursor:pointer"`
+      :'style="width:62px;height:82px"';
+    equipHtml+=buildMiniCardHtml(c, clickAttr);
   });
   document.getElementById('human-equip').innerHTML=equipHtml;
-  document.getElementById('human-equip-row').innerHTML=equipHtml;
 }
 
 function cardDisplayName(c) {
@@ -2111,9 +2360,10 @@ function cardDisplayName(c) {
 function makeCardEl(card, idx, canPlay, isSelected) {
   const div = document.createElement('div');
   const isBlue = card.type === 'blue';
+  const isGreen = card.type === 'green';
   const suitColor = isRed(card.suit) ? 'red-suit' : '';
   const imgSrc = CARD_IMGS[card.name];
-  div.className = 'card' + (isBlue?' blue-card':'') + (isSelected?' selected':'') + ((!canPlay&&!isSelected)?' disabled':'');
+  div.className = 'card' + (isBlue?' blue-card':'') + (isGreen?' green-card':'') + (isSelected?' selected':'') + ((!canPlay&&!isSelected)?' disabled':'');
   div.dataset.cardId = card.id;
   if(canPlay||isSelected) div.onclick = ()=>selectCard(idx);
   div.innerHTML = imgSrc
@@ -2149,7 +2399,6 @@ function renderHumanHand() {
     container.innerHTML = '';
   }
 
-  const existingIds = [...container.children].map(el => Number(el.dataset.cardId));
   const newIds = p.hand.map(c => c.id);
 
   // Remove cards no longer in hand
@@ -2271,17 +2520,17 @@ function animateDrawCards(pidx, count, callback) {
       card.getBoundingClientRect();
       const tx=toRect.left+toRect.width/2-fromRect.width/2;
       const ty=toRect.top+toRect.height/2-fromRect.height/2;
-      card.style.transition='left 0.4s ease-out, top 0.4s ease-out, opacity 0.15s ease-in 0.3s, transform 0.4s ease-out';
+      card.style.transition='left 0.25s ease-out, top 0.25s ease-out, opacity 0.1s ease-in 0.18s, transform 0.25s ease-out';
       card.style.left=tx+'px';
       card.style.top=ty+'px';
       card.style.opacity='0';
       card.style.transform='scale(0.6) rotate(-8deg)';
 
-      setTimeout(()=>card.remove(), 500);
-    }, i*180);
+      setTimeout(()=>card.remove(), 300);
+    }, i*100);
   }
   // Callback after all cards finish flying
-  setTimeout(()=>{ if(callback) callback(); }, count*180+450);
+  setTimeout(()=>{ if(callback) callback(); }, count*100+280);
 }
 
 function flyCardToDiscard(fromRect, cardName, isBlue) {
@@ -2375,6 +2624,12 @@ function showPlayerCardPopup(pidx, cardName) {
   setTimeout(()=>badge.remove(), 2200);
 }
 
+// Activate a green card from human's in-play area
+function activateGreenCardHuman(inPlayIdx) {
+  if(G.phase!=='play'||G.turn!==G.humanIdx) return;
+  if(typeof activateGreenCard==='function') activateGreenCard(G.humanIdx, inPlayIdx);
+}
+
 function showMissPopup(playerName) {
   const el=document.getElementById('miss-popup');
   el.innerHTML=`<div id="miss-popup-inner">
@@ -2409,34 +2664,162 @@ function deckInfo() {
   addLog(`Deck: ${G.deck.length} cards remaining, ${G.discard.length} in discard.`,'log-info');
 }
 
+// ===== WESTERN INTRO =====
+function playWesternIntro(callback) {
+  const townNames = ['Tombstone','Deadwood','Dodge City','El Paso','Abilene','Silverado','Red Rock','Coyote Creek','Dusty Gulch','Black Mesa'];
+  const townName = townNames[Math.floor(Math.random()*townNames.length)];
+  const playerChar = CHARACTERS[window._selectedChar||0];
+
+  const overlay = document.createElement('div');
+  overlay.id = 'western-intro';
+  overlay.innerHTML = `
+    <div class="intro-dust"></div>
+    <div class="intro-sky">
+      <div class="intro-sun"></div>
+      <div class="intro-canyon-bg"></div>
+      <div class="intro-cactus c1"></div>
+      <div class="intro-cactus c2"></div>
+      <div class="intro-cactus c3"></div>
+      <div class="intro-cactus c4"></div>
+      <div class="intro-cactus c5"></div>
+      <div class="intro-ground"></div>
+      <div class="intro-rail"></div>
+      <div class="intro-train">
+        <svg class="train-svg" viewBox="0 2 280 50" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <!-- Small wheel with spokes (r=4) -->
+            <g id="wh-sm"><circle r="4" fill="#444" stroke="#666" stroke-width="0.8"/><line y1="-3" y2="3" stroke="#888" stroke-width="0.7"/><line x1="-3" x2="3" stroke="#888" stroke-width="0.7"/></g>
+            <!-- Big wheel with spokes (r=6) -->
+            <g id="wh-lg"><circle r="6" fill="#444" stroke="#666" stroke-width="0.8"/><line y1="-4.5" y2="4.5" stroke="#888" stroke-width="0.7"/><line x1="-4.5" x2="4.5" stroke="#888" stroke-width="0.7"/><line x1="-3.2" y1="-3.2" x2="3.2" y2="3.2" stroke="#888" stroke-width="0.5"/><line x1="3.2" y1="-3.2" x2="-3.2" y2="3.2" stroke="#888" stroke-width="0.5"/></g>
+          </defs>
+          <!-- Car 3 (caboose) -->
+          <rect x="0" y="28" width="45" height="16" rx="2" fill="#3a1e0c" stroke="#5a3818"/>
+          <rect x="5" y="24" width="35" height="6" rx="1" fill="#2e1808"/>
+          <use href="#wh-sm" x="10" y="46" class="train-wh"/>
+          <use href="#wh-sm" x="35" y="46" class="train-wh"/>
+          <line x1="45" y1="38" x2="52" y2="38" stroke="#555" stroke-width="2"/>
+          <!-- Car 2 -->
+          <rect x="52" y="26" width="50" height="18" rx="2" fill="#4a2810" stroke="#6a3818"/>
+          <rect x="56" y="30" width="10" height="10" rx="1" fill="#3a1e0c"/>
+          <rect x="70" y="30" width="10" height="10" rx="1" fill="#3a1e0c"/>
+          <rect x="84" y="30" width="10" height="10" rx="1" fill="#3a1e0c"/>
+          <use href="#wh-sm" x="62" y="46" class="train-wh"/>
+          <use href="#wh-sm" x="92" y="46" class="train-wh"/>
+          <line x1="102" y1="38" x2="109" y2="38" stroke="#555" stroke-width="2"/>
+          <!-- Car 1 -->
+          <rect x="109" y="24" width="50" height="20" rx="2" fill="#4a2a14" stroke="#6a4020"/>
+          <rect x="113" y="18" width="42" height="8" rx="2" fill="#3a1e0c" stroke="#5a3010"/>
+          <use href="#wh-sm" x="119" y="46" class="train-wh"/>
+          <use href="#wh-sm" x="149" y="46" class="train-wh"/>
+          <line x1="159" y1="38" x2="166" y2="38" stroke="#555" stroke-width="2"/>
+          <!-- Engine cabin -->
+          <rect x="166" y="20" width="28" height="26" rx="2" fill="#4a2810" stroke="#6a4020"/>
+          <rect x="168" y="24" width="10" height="8" rx="1" fill="rgba(245,180,50,0.5)"/>
+          <rect x="182" y="24" width="10" height="8" rx="1" fill="rgba(245,180,50,0.5)"/>
+          <rect x="170" y="16" width="22" height="5" rx="1" fill="#3a1e08"/>
+          <!-- Boiler -->
+          <rect x="194" y="28" width="56" height="18" rx="10" fill="#333" stroke="#555"/>
+          <rect x="204" y="30" width="2" height="14" fill="#555"/>
+          <rect x="214" y="30" width="2" height="14" fill="#555"/>
+          <rect x="224" y="30" width="2" height="14" fill="#555"/>
+          <rect x="234" y="30" width="2" height="14" fill="#555"/>
+          <!-- Chimney -->
+          <rect x="238" y="10" width="10" height="18" rx="1" fill="#444" stroke="#555"/>
+          <rect x="235" y="6" width="16" height="6" rx="2" fill="#555"/>
+          <!-- Cow catcher -->
+          <polygon points="250,44 266,48 266,40" fill="#555" stroke="#666"/>
+          <!-- Headlight -->
+          <circle cx="258" cy="36" r="3.5" fill="#f5c518" opacity="0.7"/>
+          <circle cx="258" cy="36" r="7" fill="rgba(245,197,24,0.15)"/>
+          <!-- Engine wheels -->
+          <use href="#wh-sm" x="176" y="46" class="train-wh"/>
+          <use href="#wh-lg" x="206" y="46" class="train-wh"/>
+          <use href="#wh-lg" x="232" y="46" class="train-wh"/>
+        </svg>
+        <div class="smoke-stack">
+          <div class="smoke-puff p1"></div>
+          <div class="smoke-puff p2"></div>
+          <div class="smoke-puff p3"></div>
+          <div class="smoke-puff p4"></div>
+          <div class="smoke-puff p5"></div>
+          <div class="smoke-puff p6"></div>
+          <div class="smoke-puff p7"></div>
+        </div>
+      </div>
+    </div>
+    <div class="intro-content">
+      <div class="intro-line intro-line-1">Somewhere in the Wild West...</div>
+      <div class="intro-line intro-line-2">The town of <span class="intro-town">${townName}</span></div>
+      <div class="intro-line intro-line-3">A stranger rides in...</div>
+      <div class="intro-line intro-line-4">${playerChar.name}</div>
+      <div class="intro-line intro-line-5">— Draw your weapon —</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Close modal behind the opaque overlay
+  closeModal();
+
+  // Trigger animations
+  requestAnimationFrame(()=>{ overlay.classList.add('active'); });
+
+  // Fade out and start game
+  setTimeout(()=>{
+    overlay.classList.add('fade-out');
+    setTimeout(()=>{ overlay.remove(); callback(); }, 1000);
+  }, 6500);
+}
+
 // ===== GAME SETUP =====
 function showCharSelect() {
-  let selectedChar=0;
-  const charListHtml=CHARACTERS.map((c,i)=>{
-    return `<div class="char-option char-card ${i===0?'picked':''}" id="copt-${i}" onclick="selectChar(${i})">
-      ${charImgHtml(c.key, 'char-card-img')}
-      <div class="char-card-name">${c.name}</div>
-      <div class="char-card-hp">${'❤️'.repeat(c.hp)}</div>
-      <div class="char-card-ability">${c.ability}</div>
+  function buildCharGrid() {
+    return CHARACTERS.map((c,i)=>{
+      const dcBadge = c.expansion==='dc' ? '<span class="char-dc-badge">DC</span>' : '';
+      return `<div class="char-option char-card ${i===0?'picked':''}" id="copt-${i}" onclick="selectChar(${i})">
+        ${charImgHtml(c.key, 'char-card-img')}
+        <div class="char-card-text">
+          <div class="char-card-name">${c.name}${dcBadge}</div>
+          <div class="char-card-hp">${'❤️'.repeat(c.hp)}</div>
+          <div class="char-card-ability">${c.ability}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function buildPlayerCountBtns() {
+    const max = window._dcEnabled ? 8 : 7;
+    const counts = [];
+    for(let n=3; n<=max; n++) counts.push(n);
+    return counts.map(n=>`<button class="pcs-btn${n===5?' picked':''}" onclick="selectPlayerCount(${n})">${n}</button>`).join('');
+  }
+
+  const expansionHtml=`
+    <div class="expansion-toggle">
+      <span class="expansion-toggle-label">Game Mode</span>
+      <div class="expansion-toggle-btn">
+        <button class="exp-btn picked" id="exp-base" onclick="toggleExpansion(false)">Base Game</button>
+        <button class="exp-btn" id="exp-dc" onclick="toggleExpansion(true)">+ Dodge City</button>
+      </div>
     </div>`;
-  }).join('');
 
   const playerCountHtml=`
     <div class="player-count-setting">
       <span class="pcs-label">Number of Players</span>
-      <div class="pcs-btns">
-        ${[3,4,5,6,7].map(n=>`<button class="pcs-btn${n===5?' picked':''}" onclick="selectPlayerCount(${n})">${n}</button>`).join('')}
+      <div class="pcs-btns" id="pcs-btns-container">
+        ${buildPlayerCountBtns()}
       </div>
     </div>`;
 
   showModal('Choose Your Character',
-    `${playerCountHtml}
+    `${expansionHtml}
+    ${playerCountHtml}
     <div style="margin:8px 0 6px;color:#d4a017;text-align:center;font-size:0.8em;font-style:italic">Select your character — role assigned randomly</div>
-    <div class="char-grid">${charListHtml}</div>`,
-    [{label:'Start Game!', fn:()=>{ closeModal(); startGame(window._selectedChar||0, window._selectedPlayerCount||5); }}]
+    <div class="char-grid" id="char-grid-container">${buildCharGrid()}</div>`,
+    [{label:'Start Game!', fn:()=>{ playWesternIntro(()=>startGame(window._selectedChar||0, window._selectedPlayerCount||5)); }}]
   );
   window._selectedChar=0;
   window._selectedPlayerCount=5;
+  window._dcEnabled=false;
   window.selectChar=function(i){
     document.querySelectorAll('[id^="copt-"]').forEach(el=>el.classList.remove('picked'));
     document.getElementById(`copt-${i}`)?.classList.add('picked');
@@ -2447,7 +2830,47 @@ function showCharSelect() {
     document.querySelector(`.pcs-btn[onclick="selectPlayerCount(${n})"]`)?.classList.add('picked');
     window._selectedPlayerCount=n;
   };
+  window.toggleExpansion=function(enabled){
+    window._dcEnabled=enabled;
+    document.getElementById('exp-base').classList.toggle('picked',!enabled);
+    document.getElementById('exp-dc').classList.toggle('picked',enabled);
+    if(enabled && typeof enableDodgeCity==='function') enableDodgeCity();
+    else if(typeof disableDodgeCity==='function') disableDodgeCity();
+    // Rebuild character grid with expanded layout for DC
+    const grid=document.getElementById('char-grid-container');
+    if(grid) {
+      grid.innerHTML=buildCharGrid();
+      grid.classList.toggle('char-grid-expanded', enabled);
+    }
+    window._selectedChar=0;
+    // Rebuild player count buttons (8 available with DC)
+    const pcsBtns=document.getElementById('pcs-btns-container');
+    if(pcsBtns) pcsBtns.innerHTML=buildPlayerCountBtns();
+    // Keep current selection if valid
+    if(window._selectedPlayerCount > (enabled?8:7)) window._selectedPlayerCount = enabled?8:7;
+    document.querySelector(`.pcs-btn[onclick="selectPlayerCount(${window._selectedPlayerCount})"]`)?.classList.add('picked');
+  };
+}
+
+// ===== TITLE SCREEN =====
+function dismissTitleScreen() {
+  const ts = document.getElementById('title-screen');
+  // Open character select behind the title screen first
+  showCharSelect();
+  // Small delay so modal is rendered, then fade out title screen to reveal it
+  requestAnimationFrame(()=>{
+    ts.classList.add('hidden');
+    setTimeout(()=>ts.remove(), 700);
+  });
+}
+
+function showHowToPlay() {
+  document.getElementById('howto-screen').classList.add('active');
+}
+
+function closeHowToPlay() {
+  document.getElementById('howto-screen').classList.remove('active');
 }
 
 // ===== START =====
-showCharSelect();
+// Title screen shows first — game starts when "Play Game" is clicked
