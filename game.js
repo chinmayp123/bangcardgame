@@ -76,6 +76,9 @@ function buildDeck() {
   add('Duel','brown',2,12,'Challenge player to duel. Alternate BANG! or lose 1 life. You must respond first.');
   // Saloon x1
   add('Saloon','brown',0,5,'All living players regain 1 life point.');
+  // General Store x2
+  add('General Store','brown',2,9,'Reveal cards = alive players. Each picks one, starting with you.');
+  add('General Store','brown',3,12,'Reveal cards = alive players. Each picks one, starting with you.');
   // BLUE / Equipment
   // Barrel x2
   add('Barrel','blue',3,14,'When targeted by BANG!, flip top card. If Hearts → automatic Miss!',{equip:true});
@@ -119,6 +122,8 @@ let G = {
   pendingResponse: null, // { type, attacker, card, needMisses, callback }
   pendingTargetAction: null, // { cardIdx, type }
   gameOver: false,
+  turnTimer: null,
+  turnTimeLeft: 0,
   humanIdx: 0,
   log: [],
   animLock: false,
@@ -391,6 +396,7 @@ function continueAfterDynamiteCheck(playerIdx) {
     setStatus(`Your turn! Draw 2 cards to begin.`);
     document.getElementById('btn-draw').disabled=false;
     document.getElementById('btn-end').disabled=true;
+    startTurnTimer();
     // Jesse Jones special draw
     if(p.char.key==='jesse') {
       setStatus('Jesse Jones: draw from deck or steal from a player?');
@@ -456,7 +462,7 @@ function afterDrawPhase(pidx) {
     document.getElementById('btn-end').disabled=false;
     if(p.char.key==='sid') document.getElementById('btn-sid').style.display='block';
   } else {
-    setTimeout(()=>aiPlayPhase(pidx), 600);
+    setTimeout(()=>aiPlayPhase(pidx), 900);
   }
 }
 
@@ -476,6 +482,7 @@ function endTurn() {
 }
 
 function doEndTurn(pidx) {
+  clearTurnTimer();
   G.phase = 'idle';
   G.selectedCard = null;
   document.getElementById('card-info-box').style.display='none';
@@ -483,6 +490,51 @@ function doEndTurn(pidx) {
   suzyCheck(pidx);
   renderAll();
   setTimeout(()=>nextTurn(), 400);
+}
+
+// ===== TURN TIMER (2 minutes) =====
+const TURN_TIME = 120; // seconds
+
+function startTurnTimer() {
+  clearTurnTimer();
+  G.turnTimeLeft = TURN_TIME;
+  updateTimerDisplay();
+  G.turnTimer = setInterval(() => {
+    G.turnTimeLeft--;
+    updateTimerDisplay();
+    if(G.turnTimeLeft <= 0) {
+      clearTurnTimer();
+      forceEndTurn();
+    }
+  }, 1000);
+}
+
+function clearTurnTimer() {
+  if(G.turnTimer) { clearInterval(G.turnTimer); G.turnTimer = null; }
+  const el = document.getElementById('turn-timer');
+  if(el) el.textContent = '';
+}
+
+function updateTimerDisplay() {
+  const el = document.getElementById('turn-timer');
+  if(!el) return;
+  const m = Math.floor(G.turnTimeLeft / 60);
+  const s = G.turnTimeLeft % 60;
+  el.textContent = `${m}:${s<10?'0':''}${s}`;
+  el.style.color = G.turnTimeLeft <= 15 ? '#ff4444' : G.turnTimeLeft <= 30 ? '#ffaa33' : '#d4aa60';
+}
+
+function forceEndTurn() {
+  addLog('Time\'s up! Turn auto-ended.','log-bad');
+  const p = G.players[G.humanIdx];
+  // Auto-discard excess cards randomly
+  while(p.hand.length > p.hp) {
+    const ri = Math.floor(Math.random() * p.hand.length);
+    const card = p.hand.splice(ri, 1)[0];
+    discardCard(card);
+    addLog(`Auto-discarded ${card.name}.`,'log-info');
+  }
+  doEndTurn(G.humanIdx);
 }
 
 function nextTurn() {
@@ -767,6 +819,10 @@ function playCard(pidx, cardIdx, targetIdx) {
       renderAll();
       afterCardPlay(pidx);
       break;
+    case 'General Store':
+      remove();
+      playGeneralStore(pidx);
+      break;
     default:
       addLog(`${p.name} plays ${card.name}.`,'log-action');
       remove();
@@ -908,7 +964,7 @@ function _gatlingHitDef(def, attackerIdx, nextTarget) {
     def.hand.splice(def.hand.indexOf(mc),1); discardCard(mc);
     addLog(`${def.name} dodges Gatling!`,'log-good');
     showPlayerCardPopup(def.idx,'MISS!');
-    nextTarget();
+    setTimeout(nextTarget, 800);
   } else {
     addLog(`${def.name} hit by Gatling!`,'log-bad');
     dealDamage(def.idx,1,attackerIdx,nextTarget);
@@ -940,10 +996,10 @@ function playIndians(attackerIdx, card) {
       def.hand.splice(def.hand.indexOf(bangCard),1); discardCard(bangCard);
       addLog(`${def.name} plays BANG! against Indians!`,'log-good');
       showPlayerCardPopup(def.idx,'BANG!');
-      nextTarget();
+      setTimeout(nextTarget, 800);
     } else {
       addLog(`${def.name} has no BANG! — hit by Indians!`,'log-bad');
-      dealDamage(def.idx,1,attackerIdx,nextTarget);
+      dealDamage(def.idx,1,attackerIdx,()=>setTimeout(nextTarget,600));
     }
   }
   nextTarget();
@@ -961,19 +1017,22 @@ function playPanic(attackerIdx, targetIdx) {
     promptStealFrom(attackerIdx, targetIdx, 'panic');
     return;
   }
-  // AI: prefer in-play then hand
-  if(def.inPlay.length>0){
-    const c=def.inPlay.splice(0,1)[0];
-    atk.hand.push(c);
-    addLog(`${atk.name} steals ${c.name} from ${def.name}'s table.`,'log-action');
-  } else {
-    const ri=Math.floor(Math.random()*def.hand.length);
-    const c=def.hand.splice(ri,1)[0];
-    atk.hand.push(c);
-    addLog(`${atk.name} steals a card from ${def.name}'s hand.`,'log-action');
-    if(def.isHuman) clearHumanSelection(); // hand index shifted
-  }
-  afterCardPlay(attackerIdx);
+  // AI: show target badge then resolve after delay
+  showPlayerCardPopup(targetIdx, 'Panic!');
+  setTimeout(()=>{
+    if(def.inPlay.length>0){
+      const c=def.inPlay.splice(0,1)[0];
+      atk.hand.push(c);
+      addLog(`${atk.name} steals ${c.name} from ${def.name}'s table.`,'log-action');
+    } else if(def.hand.length>0){
+      const ri=Math.floor(Math.random()*def.hand.length);
+      const c=def.hand.splice(ri,1)[0];
+      atk.hand.push(c);
+      addLog(`${atk.name} steals a card from ${def.name}'s hand.`,'log-action');
+      if(def.isHuman) clearHumanSelection();
+    }
+    afterCardPlay(attackerIdx);
+  }, 1200);
 }
 
 // Cat Balou
@@ -988,25 +1047,111 @@ function playCatBalou(attackerIdx, targetIdx) {
     promptDiscardFrom(attackerIdx, targetIdx);
     return;
   }
-  // AI: prefer enemy's weapon or barrel
-  const weapon=def.inPlay.find(c=>c.weapon||c.name==='Barrel'||c.name==='Mustang'||c.name==='Scope');
-  if(weapon){
-    def.inPlay.splice(def.inPlay.indexOf(weapon),1);
-    discardCard(weapon);
-    addLog(`${atk.name} discards ${weapon.name} from ${def.name}.`,'log-action');
-  } else if(def.inPlay.length>0){
-    const c=def.inPlay.splice(0,1)[0]; discardCard(c);
-    addLog(`${atk.name} discards ${c.name} from ${def.name}'s table.`,'log-action');
-  } else {
-    const ri=Math.floor(Math.random()*def.hand.length);
-    const c=def.hand.splice(ri,1)[0]; discardCard(c);
-    addLog(`${atk.name} discards a card from ${def.name}'s hand.`,'log-action');
-    if(def.isHuman) clearHumanSelection(); // hand index shifted
-  }
-  afterCardPlay(attackerIdx);
+  // AI: show target badge then resolve after delay
+  showPlayerCardPopup(targetIdx, 'Cat Balou');
+  setTimeout(()=>{
+    const weapon=def.inPlay.find(c=>c.weapon||c.name==='Barrel'||c.name==='Mustang'||c.name==='Scope');
+    if(weapon){
+      def.inPlay.splice(def.inPlay.indexOf(weapon),1);
+      discardCard(weapon);
+      addLog(`${atk.name} discards ${weapon.name} from ${def.name}.`,'log-action');
+    } else if(def.inPlay.length>0){
+      const c=def.inPlay.splice(0,1)[0]; discardCard(c);
+      addLog(`${atk.name} discards ${c.name} from ${def.name}'s table.`,'log-action');
+    } else if(def.hand.length>0){
+      const ri=Math.floor(Math.random()*def.hand.length);
+      const c=def.hand.splice(ri,1)[0]; discardCard(c);
+      addLog(`${atk.name} discards a card from ${def.name}'s hand.`,'log-action');
+      if(def.isHuman) clearHumanSelection();
+    }
+    afterCardPlay(attackerIdx);
+  }, 1200);
 }
 
 // Duel
+// General Store: reveal N cards (N = alive players), each picks one in turn order
+function playGeneralStore(pidx) {
+  const alive = alivePlayers();
+  const revealed = [];
+  for(let i=0; i<alive.length; i++){
+    const c = drawTop();
+    if(c) revealed.push(c);
+  }
+  addLog(`General Store! ${revealed.length} cards revealed.`,'log-action');
+
+  // Order: starting with pidx, going clockwise
+  const order = [];
+  let cur = pidx;
+  for(let i=0; i<alive.length; i++){
+    if(G.players[cur].alive) order.push(cur);
+    cur = (cur+1)%G.players.length;
+    while(!G.players[cur].alive && order.length<alive.length) cur=(cur+1)%G.players.length;
+  }
+
+  let pickIdx=0;
+  function nextPick(){
+    if(pickIdx>=order.length || revealed.length===0){
+      renderAll();
+      afterCardPlay(pidx);
+      return;
+    }
+    const pi=order[pickIdx++];
+    const p=G.players[pi];
+
+    if(revealed.length===1){
+      // Last player gets the remaining card
+      p.hand.push(revealed[0]);
+      addLog(`${p.name} takes ${revealed[0].name}.`,'log-info');
+      revealed.length=0;
+      nextPick();
+      return;
+    }
+
+    if(p.isHuman){
+      // Human picks via modal
+      showModal('General Store — Pick a card',
+        `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">${
+          revealed.map((c,i)=>{
+            const img=CARD_IMGS[c.name];
+            return `<div class="char-option" style="width:80px;text-align:center;padding:6px" onclick="document.querySelectorAll('.char-option').forEach(x=>x.classList.remove('picked'));this.classList.add('picked');window._pickIdx=${i}">
+              ${img?`<img src="${img}" style="width:60px;height:84px;object-fit:cover;border-radius:4px;border:2px solid #8b6010">`:`<div style="font-size:2em">${CARD_ICONS[c.name]||'🃏'}</div>`}
+              <div style="font-size:0.75em;font-weight:bold;color:#f5c518;margin-top:4px">${c.name}</div>
+              <div style="font-size:0.6em;color:#999">${valName(c.value)}${suitSym(c.suit)}</div>
+            </div>`;
+          }).join('')
+        }</div>`,
+        [{label:'Take Card', fn:()=>{
+          const ci=window._pickIdx||0;
+          const picked=revealed.splice(ci,1)[0];
+          p.hand.push(picked);
+          addLog(`${p.name} takes ${picked.name}.`,'log-info');
+          closeModal();
+          nextPick();
+        }}]
+      );
+      window._pickIdx=0;
+    } else {
+      // AI picks: prefer weapons, then useful brown cards, then anything
+      let best=0;
+      revealed.forEach((c,i)=>{
+        let score=1;
+        if(c.name==='BANG!') score=3;
+        if(c.name==='MISS!') score=3;
+        if(c.weapon) score=4;
+        if(c.name==='Beer') score=2;
+        if(c.name==='Barrel'||c.name==='Mustang'||c.name==='Scope') score=3;
+        if(score>(revealed[best]._aiScore||1)) { best=i; c._aiScore=score; }
+      });
+      const picked=revealed.splice(best,1)[0];
+      delete picked._aiScore;
+      p.hand.push(picked);
+      addLog(`${p.name} takes ${picked.name}.`,'log-info');
+      setTimeout(nextPick, 400);
+    }
+  }
+  nextPick();
+}
+
 function playDuel(challengerIdx, defenderIdx) {
   const chal=G.players[challengerIdx], def=G.players[defenderIdx];
   addLog(`${chal.name} challenges ${def.name} to a Duel!`,'log-action');
@@ -1507,7 +1652,7 @@ function aiPlayPhase(pidx) {
 
   // Draw cards
   for(const card of p.hand){
-    if(card.name==='Wells Fargo'||card.name==='Stagecoach') plays.push({card,type:'draw'});
+    if(card.name==='Wells Fargo'||card.name==='Stagecoach'||card.name==='General Store') plays.push({card,type:'draw'});
   }
 
   // Saloon if low health
@@ -1589,7 +1734,7 @@ function aiPlayPhase(pidx) {
         playCard(pidx,p.hand.indexOf(play.card),play.target);
       },500);
       // Continue after delay (playCard is async for responses)
-      G._afterPlay=()=>{ setTimeout(doNextPlay,600); };
+      G._afterPlay=()=>{ setTimeout(doNextPlay,900); };
       return;
     } else if(play.type==='equip'||play.type==='beer'||play.type==='saloon'||play.type==='draw'){
       renderAll();
@@ -1597,13 +1742,13 @@ function aiPlayPhase(pidx) {
         const ci=p.hand.indexOf(play.card);
         if(ci===-1){doNextPlay();return;}
         playCard(pidx,ci,play.target);
-        setTimeout(doNextPlay,500);
-      },500);
+        setTimeout(doNextPlay,800);
+      },600);
       return;
     } else if(play.type==='indians'||play.type==='gatling'||play.type==='panic'||play.type==='catbalou'||play.type==='duel'||play.type==='jail'){
       if((play.type==='panic'||play.type==='catbalou'||play.type==='duel'||play.type==='jail')&&
          (play.target===undefined||!G.players[play.target]?.alive)){doNextPlay();return;}
-      G._afterPlay=()=>{ setTimeout(doNextPlay,600); };
+      G._afterPlay=()=>{ setTimeout(doNextPlay,900); };
       renderAll();
       setTimeout(()=>{
         const ci=p.hand.indexOf(play.card);
@@ -1664,36 +1809,54 @@ function selectCard(idx) {
 
 function positionCardInfoPopup(idx) {
   const popup = document.getElementById('card-info-box');
-  // Find the card element by its position in #human-hand
   const container = document.getElementById('human-hand');
   const cardEl = container.children[idx];
   if(!cardEl) { popup.style.display='none'; return; }
 
-  const rect = cardEl.getBoundingClientRect();
-  const popupW = 180;
-  // Center popup horizontally on card, appear below it
-  let left = rect.left + rect.width/2 - popupW/2;
-  let top  = rect.bottom + 8;
+  // Show offscreen first to measure actual height
+  popup.style.display = 'block';
+  popup.style.left = '-9999px';
+  popup.style.top = '-9999px';
+  const popupRect = popup.getBoundingClientRect();
+  const popupW = popupRect.width;
+  const popupH = popupRect.height;
 
-  // Clamp to viewport
-  left = Math.max(6, Math.min(left, window.innerWidth - popupW - 6));
-  if(top + 160 > window.innerHeight) {
-    // Not enough room below — show above instead
-    top = rect.top - 160;
-    popup.querySelector('.card-info-arrow').style.cssText = 'top:auto;bottom:-9px;border-bottom:none;border-top:9px solid #c49a30;';
-    popup.querySelector('.card-info-arrow').style.setProperty('--after-border', 'border-top:7px solid #241008;border-bottom:none;');
-  } else {
-    popup.querySelector('.card-info-arrow').style.cssText = '';
+  const rect = cardEl.getBoundingClientRect();
+  const arrow = popup.querySelector('.card-info-arrow');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let left = rect.left + rect.width/2 - popupW/2;
+  left = Math.max(6, Math.min(left, vw - popupW - 6));
+
+  // Try above the card first (since hand is at the bottom)
+  let top = rect.top - popupH - 10;
+  let showAbove = true;
+
+  if(top < 6) {
+    // Not enough room above — try below
+    top = rect.bottom + 10;
+    showAbove = false;
+    if(top + popupH > vh - 6) {
+      // Still no room — clamp to bottom of viewport
+      top = vh - popupH - 6;
+    }
   }
 
-  // Adjust arrow horizontal position to point at card center
+  // Arrow direction
+  if(showAbove) {
+    arrow.style.cssText = 'top:auto;bottom:-9px;left:50%;transform:translateX(-50%);border-left:9px solid transparent;border-right:9px solid transparent;border-top:9px solid #c49a30;border-bottom:none;';
+  } else {
+    arrow.style.cssText = '';
+  }
+
+  // Arrow horizontal to point at card center
   const arrowLeft = rect.left + rect.width/2 - left;
-  popup.querySelector('.card-info-arrow').style.left = `${Math.max(16, Math.min(arrowLeft, popupW-16))}px`;
-  popup.querySelector('.card-info-arrow').style.transform = 'translateX(-50%)';
+  arrow.style.left = `${Math.max(16, Math.min(arrowLeft, popupW-16))}px`;
+  arrow.style.transform = 'translateX(-50%)';
 
   popup.style.left = left + 'px';
   popup.style.top  = top  + 'px';
-  popup.style.display = 'block';
 }
 
 function canPlayCardHuman(idx) {
@@ -1816,6 +1979,18 @@ const CHAR_ICONS = {
   pedro:'🌵', sid:'💰', rose:'🌹', bjack:'🎲'
 };
 
+const CHAR_IMGS = {
+  willy:'images/willy.jpg', slab:'images/slab.jpg', bart:'images/bart.jpg', gringo:'images/gringo.jpg',
+  jesse:'images/jesse.jpg', jour:'images/jour.jpg', kit:'images/kit.jpg', lucky:'images/lucky.jpg',
+  paul:'images/paul.jpg', janet:'images/janet.jpg', suzy:'images/suzy.jpg', vulture:'images/vulture.jpg',
+  pedro:'images/pedro.jpg', sid:'images/sid.jpg', rose:'images/rose.jpg', bjack:'images/bjack.jpg'
+};
+
+function charImgHtml(key, cls) {
+  const src = CHAR_IMGS[key];
+  return src ? `<img src="${src}" alt="${key}" class="${cls||'char-img'}">` : (CHAR_ICONS[key]||'🤠');
+}
+
 // Hex seating positions: cx = center-x as % of container, top = px from top
 const HEX_SEATS = {
   1: [{cx:50,  top:10}],
@@ -1841,10 +2016,10 @@ function renderOpponents(targetableIds) {
     if(isTargetable) div.onclick=()=>selectTarget(p.idx);
     const seat=seats[seatIdx]||seats[0];
     div.style.position='absolute';
-    div.style.left=`clamp(4px, calc(${seat.cx}% - 82px), calc(100% - 168px))`;
+    div.style.left=`clamp(4px, calc(${seat.cx}% - 95px), calc(100% - 194px))`;
     div.style.top=seat.top+'px';
 
-    const icon = CHAR_ICONS[p.char.key] || '🤠';
+    const iconHtml = charImgHtml(p.char.key, 'opp-char-img');
     const roleText = p.roleRevealed
       ? `<span class="role-badge role-${p.role}">${p.role}</span>`
       : '<span style="color:#666">??? role</span>';
@@ -1867,21 +2042,17 @@ function renderOpponents(targetableIds) {
     // Mini equipment cards on placemat
     let equipHtml='<div class="placemat-equip">';
     p.inPlay.forEach(c=>{
-      const red=isRed(c.suit);
-      equipHtml+=`<div class="mini-card${red?' mini-red':''}">
-        <div class="mini-card-val${red?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div>
-        <div class="mini-card-suit${red?' red-suit':''}">${suitSym(c.suit)}</div>
-        <div class="mini-card-name">${c.name}</div>
-        ${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}
-      </div>`;
+      const mImg=CARD_IMGS[c.name];
+      equipHtml+=mImg
+        ? `<div class="mini-card mini-card-has-img"><img src="${mImg}" class="mini-card-img"><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`
+        : `<div class="mini-card${isRed(c.suit)?' mini-red':''}"><div class="mini-card-val${isRed(c.suit)?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`;
     });
-    if(p.jailed) equipHtml+=`<div class="mini-card" style="background:#2a0a00;border-color:#aa4400;color:#dd8866"><div style="font-size:1.4em">⛓️</div><div class="mini-card-name">JAIL</div></div>`;
     equipHtml+='</div>';
 
     div.innerHTML=`
       ${isCurTurn?'<div class="turn-indicator">ACTIVE</div>':''}
       <div class="opp-header">
-        <div class="opp-icon">${icon}</div>
+        <div class="opp-icon">${iconHtml}</div>
         <div class="opp-info">
           <div class="opp-name">${p.name}</div>
           <div class="opp-char">${p.char.name}</div>
@@ -1903,9 +2074,8 @@ function renderOpponents(targetableIds) {
 
 function renderHumanInfo() {
   const p=G.players[G.humanIdx];
-  const icon=CHAR_ICONS[p.char.key]||'🤠';
   const seatIcon=document.getElementById('human-seat-icon');
-  if(seatIcon) seatIcon.textContent=icon;
+  if(seatIcon) seatIcon.innerHTML=charImgHtml(p.char.key, 'human-char-img');
   document.getElementById('human-character').textContent=p.char.name;
   document.getElementById('human-role-display').innerHTML=`<span class="role-badge role-${p.role}">${p.role.toUpperCase()}</span>`;
   document.getElementById('human-ability').textContent=p.char.ability;
@@ -1915,16 +2085,13 @@ function renderHumanInfo() {
   document.getElementById('human-range-stat').textContent=`Range: ${getRange(G.humanIdx)} | HP: ${p.hp}/${p.maxHp}`;
   let equipHtml='';
   p.inPlay.forEach(c=>{
-    const red=isRed(c.suit);
-    equipHtml+=`<div class="mini-card${red?' mini-red':''}" style="width:40px;height:54px">
-      <div class="mini-card-val${red?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div>
-      <div class="mini-card-suit${red?' red-suit':''}">${suitSym(c.suit)}</div>
-      <div class="mini-card-name">${c.name}</div>
-      ${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}
-    </div>`;
+    const mImg=CARD_IMGS[c.name];
+    equipHtml+=mImg
+      ? `<div class="mini-card mini-card-has-img" style="width:44px;height:60px"><img src="${mImg}" class="mini-card-img"><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`
+      : `<div class="mini-card${isRed(c.suit)?' mini-red':''}" style="width:44px;height:60px"><div class="mini-card-val${isRed(c.suit)?' red-suit':''}">${valName(c.value)}${suitSym(c.suit)}</div><div class="mini-card-name">${c.name}</div>${c.weapon?`<div class="mini-card-range">Range ${c.range}</div>`:''}</div>`;
   });
-  if(p.jailed) equipHtml+=`<div class="mini-card" style="width:40px;height:54px;background:#2a0a00;border-color:#aa4400;color:#dd8866"><div style="font-size:1.4em">⛓️</div><div class="mini-card-name">JAIL</div></div>`;
   document.getElementById('human-equip').innerHTML=equipHtml;
+  document.getElementById('human-equip-row').innerHTML=equipHtml;
 }
 
 function cardDisplayName(c) {
@@ -1935,17 +2102,17 @@ function makeCardEl(card, idx, canPlay, isSelected) {
   const div = document.createElement('div');
   const isBlue = card.type === 'blue';
   const suitColor = isRed(card.suit) ? 'red-suit' : '';
+  const imgSrc = CARD_IMGS[card.name];
   div.className = 'card' + (isBlue?' blue-card':'') + (isSelected?' selected':'') + ((!canPlay&&!isSelected)?' disabled':'');
   div.dataset.cardId = card.id;
   if(canPlay||isSelected) div.onclick = ()=>selectCard(idx);
-  div.innerHTML = `
-    <div class="card-corner"><span class="${suitColor}">${valName(card.value)}<br>${suitSym(card.suit)}</span></div>
-    <div>
-      <div class="card-suit-big ${suitColor}">${suitSym(card.suit)}</div>
-      <div class="card-center">${card.name}</div>
-    </div>
-    <div class="card-corner-bot"><span class="${suitColor}">${valName(card.value)}<br>${suitSym(card.suit)}</span></div>
-  `;
+  div.innerHTML = imgSrc
+    ? `<img src="${imgSrc}" class="card-img" alt="${card.name}">
+       <div class="card-img-label">${card.name}</div>
+       <div class="card-corner-img"><span class="${suitColor}">${valName(card.value)}${suitSym(card.suit)}</span></div>`
+    : `<div class="card-corner"><span class="${suitColor}">${valName(card.value)}<br>${suitSym(card.suit)}</span></div>
+       <div><div class="card-suit-big ${suitColor}">${suitSym(card.suit)}</div><div class="card-center">${card.name}</div></div>
+       <div class="card-corner-bot"><span class="${suitColor}">${valName(card.value)}<br>${suitSym(card.suit)}</span></div>`;
   return div;
 }
 
@@ -2016,13 +2183,17 @@ function renderDeckArea() {
   const discard=document.getElementById('discard-card');
   if(G.discard.length>0){
     const top=G.discard[G.discard.length-1];
-    const sc=isRed(top.suit)?'red-suit':'';
-    discard.innerHTML=`
-      <div style="font-size:0.65em;color:#888">Discard</div>
-      <div class="${sc}" style="font-size:1.5em">${suitSym(top.suit)}</div>
-      <div style="font-size:0.65em;text-align:center;font-weight:bold">${top.name}</div>
-      <div style="font-size:0.6em;color:#888">${valName(top.value)}${suitSym(top.suit)}</div>
-    `;
+    const imgSrc=CARD_IMGS[top.name];
+    if(imgSrc) {
+      discard.innerHTML=`<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:4px">`;
+    } else {
+      const sc=isRed(top.suit)?'red-suit':'';
+      discard.innerHTML=`
+        <div class="${sc}" style="font-size:1.5em">${suitSym(top.suit)}</div>
+        <div style="font-size:0.65em;text-align:center;font-weight:bold">${top.name}</div>
+        <div style="font-size:0.6em;color:#888">${valName(top.value)}${suitSym(top.suit)}</div>
+      `;
+    }
     document.getElementById('discard-pile').style.background=top.type==='blue'?'#1a2040':'#1a1208';
   } else {
     discard.innerHTML='<span style="color:#555;font-size:0.75em">Empty</span>';
@@ -2071,7 +2242,9 @@ function flyCardToDiscard(fromRect, cardName, isBlue) {
 
   const el=document.createElement('div');
   el.className='card-fly'+(isBlue?' card-fly-blue':'');
-  el.textContent=cardName;
+  const imgSrc=CARD_IMGS[cardName];
+  if(imgSrc) { el.innerHTML=`<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:4px">`; }
+  else { el.textContent=cardName; }
   el.style.left=fromRect.left+'px';
   el.style.top=fromRect.top+'px';
   el.style.width=fromRect.width+'px';
@@ -2094,22 +2267,37 @@ function flyCardToDiscard(fromRect, cardName, isBlue) {
 const CARD_ICONS = {
   'BANG!':'🔫', 'MISS!':'🛡️', 'Beer':'🍺', 'Stagecoach':'🚂', 'Wells Fargo':'💰',
   'Gatling Gun':'💥', 'Indians!':'🏹', 'Panic!':'😱', 'Cat Balou':'🐱',
-  'Duel':'⚔️', 'Saloon':'🍻', 'Dynamite':'🧨', 'Jail':'⛓️',
+  'Duel':'⚔️', 'Saloon':'🍻', 'General Store':'🏪', 'Dynamite':'🧨', 'Jail':'⛓️',
   'Barrel':'🛢️', 'Mustang':'🐴', 'Scope':'🔭', 'Volcanic':'🌋',
   'Schofield':'🔫', 'Remington':'🔫', 'Rev. Carabine':'🔫', 'Winchester':'🔫',
+};
+
+const CARD_IMGS = {
+  'BANG!':'images/bang.png', 'MISS!':'images/miss.png', 'Beer':'images/beer.png',
+  'Stagecoach':'images/stagecoach.png', 'Wells Fargo':'images/wellsfargo.png',
+  'Gatling Gun':'images/gatling.png', 'Indians!':'images/indians.jpg',
+  'Panic!':'images/panic.png', 'Cat Balou':'images/catbalou.png',
+  'Duel':'images/duel.png', 'Saloon':'images/saloon.png', 'General Store':'images/generalstore.png',
+  'Dynamite':'images/dynamite.png', 'Jail':'images/jail.png',
+  'Barrel':'images/barrel.png', 'Mustang':'images/mustang.png',
+  'Scope':'images/scope.png', 'Volcanic':'images/volcanic.png',
+  'Schofield':'images/schofield.png', 'Remington':'images/remington.png',
+  'Rev. Carabine':'images/carabine.png', 'Winchester':'images/winchester.png',
 };
 
 let _cardPopupTimer=null;
 function showCardPopup(playerName, cardName) {
   const el=document.getElementById('card-popup');
   if(_cardPopupTimer){ clearTimeout(_cardPopupTimer); }
+  const imgSrc=CARD_IMGS[cardName];
   const icon=CARD_ICONS[cardName]||'🃏';
+  const visual = imgSrc ? `<img src="${imgSrc}" class="cp-card-img">` : `<div class="cp-icon">${icon}</div>`;
   el.innerHTML=`<div id="card-popup-inner">
-    <div class="cp-icon">${icon}</div>
+    ${visual}
     <div class="cp-name">${cardName}</div>
     <div class="cp-player">${playerName}</div>
   </div>`;
-  _cardPopupTimer=setTimeout(()=>{ el.innerHTML=''; _cardPopupTimer=null; }, 1600);
+  _cardPopupTimer=setTimeout(()=>{ el.innerHTML=''; _cardPopupTimer=null; }, 2200);
 }
 
 function showPlayerCardPopup(pidx, cardName) {
@@ -2120,16 +2308,18 @@ function showPlayerCardPopup(pidx, cardName) {
   if(!anchor) return;
   const rect=anchor.getBoundingClientRect();
   const overlay=document.getElementById('player-badge-overlay');
+  const imgSrc=CARD_IMGS[cardName];
   const icon=CARD_ICONS[cardName]||'🃏';
+  const visual = imgSrc ? `<img src="${imgSrc}" class="pcb-card-img">` : `<span class="pcb-icon">${icon}</span>`;
   const badge=document.createElement('div');
   badge.className='player-card-badge';
   badge.style.top=rect.top+'px';
   badge.style.left=rect.left+'px';
   badge.style.width=rect.width+'px';
   badge.style.height=rect.height+'px';
-  badge.innerHTML=`<span class="pcb-icon">${icon}</span><span class="pcb-name">${cardName}</span>`;
+  badge.innerHTML=`${visual}<span class="pcb-name">${cardName}</span>`;
   overlay.appendChild(badge);
-  setTimeout(()=>badge.remove(), 1600);
+  setTimeout(()=>badge.remove(), 2200);
 }
 
 function showMissPopup(playerName) {
@@ -2170,9 +2360,8 @@ function deckInfo() {
 function showCharSelect() {
   let selectedChar=0;
   const charListHtml=CHARACTERS.map((c,i)=>{
-    const icon=CHAR_ICONS[c.key]||'🤠';
     return `<div class="char-option char-card ${i===0?'picked':''}" id="copt-${i}" onclick="selectChar(${i})">
-      <div class="char-card-icon">${icon}</div>
+      ${charImgHtml(c.key, 'char-card-img')}
       <div class="char-card-name">${c.name}</div>
       <div class="char-card-hp">${'❤️'.repeat(c.hp)}</div>
       <div class="char-card-ability">${c.ability}</div>

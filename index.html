@@ -11,7 +11,10 @@
 <div id="header">
   <h1>BANG!</h1>
   <div id="status-msg">Loading...</div>
-  <div id="phase-info"></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div id="turn-timer"></div>
+    <div id="phase-info"></div>
+  </div>
 </div>
 
 <div id="game-container">
@@ -72,6 +75,7 @@
           <div class="equipment-area" id="human-equip"></div>
         </div>
       </div>
+      <div id="human-equip-row"></div>
       <div id="hand-label">Your Hand — click a card to select it</div>
       <div id="human-hand"></div>
     </div>
