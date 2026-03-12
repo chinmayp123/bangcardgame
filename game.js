@@ -245,15 +245,26 @@ function showDramaticFlip(card, label, isGood, callback) {
   }, 900);
 }
 
+// ===== DEFAULT ROLE CONFIGS =====
+const DEFAULT_ROLES = {
+  3: {renegade:1, outlaw:1, deputy:0},
+  4: {renegade:1, outlaw:2, deputy:0},
+  5: {renegade:1, outlaw:2, deputy:1},
+  6: {renegade:1, outlaw:3, deputy:1},
+  7: {renegade:1, outlaw:3, deputy:2},
+  8: {renegade:2, outlaw:3, deputy:2},
+};
+
 // ===== ROLE & CHARACTER ASSIGNMENT =====
 function assignRoles(count) {
-  const roles = [];
-  roles.push('sheriff');
-  if(count>=3) roles.push('renegade');
-  if(count>=4) roles.push('outlaw');
-  if(count>=5) roles.push('outlaw');
-  if(count>=6) roles.push('deputy');
-  if(count>=7) roles.push('outlaw');
+  let cfg = window._customRoles;
+  // Validate custom roles total matches player count
+  if(cfg && (cfg.renegade+cfg.outlaw+cfg.deputy) !== count-1) cfg = null;
+  if(!cfg) cfg = DEFAULT_ROLES[count] || DEFAULT_ROLES[5];
+  const roles = ['sheriff'];
+  for(let i=0;i<cfg.renegade;i++) roles.push('renegade');
+  for(let i=0;i<cfg.outlaw;i++) roles.push('outlaw');
+  for(let i=0;i<cfg.deputy;i++) roles.push('deputy');
   return shuffle(roles);
 }
 
@@ -1049,6 +1060,10 @@ function _playBangAfterBarrel(attackerIdx, defenderIdx, atk, def) {
         const hi=def.hand.indexOf(c);
         if(hi!==-1){ def.hand.splice(hi,1); discardCard(c); }
         else if(c.isGreen && def.inPlay){ const gi=def.inPlay.indexOf(c); if(gi!==-1){ def.inPlay.splice(gi,1); discardCard(c); } }
+        // Dodge card: draw 1 card
+        if(c.isDodge){ const d=drawTop(); if(d){ def.hand.push(d); addLog(`${def.name} draws 1 card from Dodge.`,'log-good'); } }
+        // Green MISS with greenDraw (e.g. Bible)
+        if(c.greenDraw){ const d=drawTop(); if(d){ def.hand.push(d); addLog(`${def.name} draws 1 card from ${c.name}.`,'log-good'); } }
       });
       addLog(`${def.name} plays MISS!`,'log-good');
       showMissPopup(def.name);
@@ -1126,6 +1141,8 @@ function _gatlingHitDef(def, attackerIdx, nextTarget) {
     const mhi=def.hand.indexOf(mc);
     if(mhi!==-1){ def.hand.splice(mhi,1); discardCard(mc); }
     else if(mc.isGreen&&def.inPlay){ const gi=def.inPlay.indexOf(mc); if(gi!==-1){def.inPlay.splice(gi,1); discardCard(mc);} }
+    if(mc.isDodge){ const d=drawTop(); if(d){ def.hand.push(d); addLog(`${def.name} draws 1 card from Dodge.`,'log-good'); } }
+    if(mc.greenDraw){ const d=drawTop(); if(d){ def.hand.push(d); addLog(`${def.name} draws 1 card from ${mc.name}.`,'log-good'); } }
     addLog(`${def.name} dodges Gatling!`,'log-good');
     showPlayerCardPopup(def.idx,'MISS!');
     setTimeout(nextTarget, 800);
@@ -2225,6 +2242,10 @@ function renderRolesBar() {
       <div class="role-row-count">${r.alive}/${r.total}</div>
     </div>`;
   }).join('');
+
+  // Mobile roles bar
+  const mbar=document.getElementById('mobile-roles-bar');
+  if(mbar) mbar.innerHTML=rows.map(r=>`<div class="mobile-role-item"><span>${r.icon}</span><span style="color:${r.color}">${r.label}</span><span>${r.alive}/${r.total}</span></div>`).join('');
 }
 
 const CHAR_ICONS = {
@@ -2298,10 +2319,10 @@ function renderOpponents(targetableIds) {
 
     // Card backs for hand
     let cardBacksHtml='<div class="card-backs">';
-    const MAX_SHOW=8;
+    const MAX_SHOW=6;
     const shown=Math.min(p.hand.length,MAX_SHOW);
     for(let i=0;i<shown;i++) cardBacksHtml+=`<div class="card-back"></div>`;
-    if(p.hand.length>MAX_SHOW) cardBacksHtml+=`<div class="card-back extra">+${p.hand.length-MAX_SHOW}</div>`;
+    if(p.hand.length>0) cardBacksHtml+=`<span class="card-backs-count">&times;${p.hand.length}</span>`;
     cardBacksHtml+='</div>';
 
     // Mini equipment cards on placemat
@@ -2487,10 +2508,18 @@ function addLog(msg, cls='log-action') {
   line.textContent=msg;
   log.appendChild(line);
   log.scrollTop=log.scrollHeight;
+  // Mirror to mobile log
+  const mlog=document.getElementById('mobile-game-log');
+  if(mlog){ const ml=line.cloneNode(true); mlog.appendChild(ml); mlog.scrollTop=mlog.scrollHeight; }
 }
 
 function setStatus(msg) {
   document.getElementById('status-msg').textContent=msg;
+}
+
+function toggleMobileLog() {
+  const panel=document.getElementById('mobile-log-panel');
+  if(panel) panel.classList.toggle('open');
 }
 
 function animateDrawCards(pidx, count, callback) {
@@ -2772,10 +2801,15 @@ function playWesternIntro(callback) {
 
 // ===== GAME SETUP =====
 function showCharSelect() {
-  function buildCharGrid() {
+  function buildCharGrid(filter) {
+    // filter: 'all' | 'base' | 'dc'
+    const f = filter || 'all';
     return CHARACTERS.map((c,i)=>{
+      if(f==='base' && c.expansion==='dc') return '';
+      if(f==='dc' && c.expansion!=='dc') return '';
       const dcBadge = c.expansion==='dc' ? '<span class="char-dc-badge">DC</span>' : '';
-      return `<div class="char-option char-card ${i===0?'picked':''}" id="copt-${i}" onclick="selectChar(${i})">
+      const picked = i===window._selectedChar ? 'picked' : '';
+      return `<div class="char-option char-card ${picked}" id="copt-${i}" onclick="selectChar(${i})">
         ${charImgHtml(c.key, 'char-card-img')}
         <div class="char-card-text">
           <div class="char-card-name">${c.name}${dcBadge}</div>
@@ -2810,16 +2844,43 @@ function showCharSelect() {
       </div>
     </div>`;
 
+  const roleCustomHtml=`
+    <div class="role-custom-setting" id="role-custom-area">
+      <div class="role-custom-header" onclick="toggleRoleCustom()">
+        <span class="pcs-label">Customize Roles</span>
+        <span class="role-custom-arrow" id="role-custom-arrow">&#9654;</span>
+      </div>
+      <div class="role-custom-body" id="role-custom-body" style="display:none">
+        <div class="role-custom-rows" id="role-custom-rows"></div>
+        <div class="role-custom-info" id="role-custom-info"></div>
+      </div>
+    </div>`;
+
   showModal('Choose Your Character',
     `${expansionHtml}
     ${playerCountHtml}
+    ${roleCustomHtml}
     <div style="margin:8px 0 6px;color:#d4a017;text-align:center;font-size:0.8em;font-style:italic">Select your character — role assigned randomly</div>
+    <div class="char-filter-bar" id="char-filter-bar" style="display:none">
+      <button class="char-filter-btn picked" onclick="filterChars('all')">All</button>
+      <button class="char-filter-btn" onclick="filterChars('base')">Base Game</button>
+      <button class="char-filter-btn" onclick="filterChars('dc')">Dodge City</button>
+    </div>
     <div class="char-grid" id="char-grid-container">${buildCharGrid()}</div>`,
     [{label:'Start Game!', fn:()=>{ playWesternIntro(()=>startGame(window._selectedChar||0, window._selectedPlayerCount||5)); }}]
   );
   window._selectedChar=0;
   window._selectedPlayerCount=5;
+  window._customRoles=null;
   window._dcEnabled=false;
+  window._charFilter='all';
+  window.filterChars=function(filter){
+    window._charFilter=filter;
+    document.querySelectorAll('.char-filter-btn').forEach(b=>b.classList.remove('picked'));
+    document.querySelector(`.char-filter-btn[onclick="filterChars('${filter}')"]`)?.classList.add('picked');
+    const grid=document.getElementById('char-grid-container');
+    if(grid) grid.innerHTML=buildCharGrid(filter);
+  };
   window.selectChar=function(i){
     document.querySelectorAll('[id^="copt-"]').forEach(el=>el.classList.remove('picked'));
     document.getElementById(`copt-${i}`)?.classList.add('picked');
@@ -2829,17 +2890,78 @@ function showCharSelect() {
     document.querySelectorAll('.pcs-btn').forEach(el=>el.classList.remove('picked'));
     document.querySelector(`.pcs-btn[onclick="selectPlayerCount(${n})"]`)?.classList.add('picked');
     window._selectedPlayerCount=n;
+    updateRoleCustomUI();
   };
+  window.toggleRoleCustom=function(){
+    const body=document.getElementById('role-custom-body');
+    const arrow=document.getElementById('role-custom-arrow');
+    if(!body)return;
+    const show=body.style.display==='none';
+    body.style.display=show?'block':'none';
+    arrow.innerHTML=show?'&#9660;':'&#9654;';
+    if(show) updateRoleCustomUI();
+  };
+  window.adjustRole=function(role,delta){
+    const pc=window._selectedPlayerCount||5;
+    const defaults=DEFAULT_ROLES[pc]||DEFAULT_ROLES[5];
+    if(!window._customRoles) window._customRoles={...defaults};
+    const cr=window._customRoles;
+    const newVal=Math.max(0, cr[role]+delta);
+    cr[role]=newVal;
+    // Validate total = playerCount - 1
+    const total=cr.renegade+cr.outlaw+cr.deputy;
+    const needed=pc-1;
+    document.getElementById('role-custom-info').textContent=
+      total===needed?'':`Need ${needed} roles total (currently ${total})`;
+    document.getElementById('role-custom-info').style.color=total===needed?'#4a4':'#e44';
+    updateRoleCustomUI();
+  };
+  window.resetRoles=function(){
+    window._customRoles=null;
+    updateRoleCustomUI();
+  };
+  function updateRoleCustomUI(){
+    const rows=document.getElementById('role-custom-rows');
+    if(!rows)return;
+    const pc=window._selectedPlayerCount||5;
+    const cfg=window._customRoles||DEFAULT_ROLES[pc]||DEFAULT_ROLES[5];
+    const needed=pc-1;
+    const total=cfg.renegade+cfg.outlaw+cfg.deputy;
+    const roleData=[
+      {key:'renegade',label:'Renegade',color:'#4a9'},
+      {key:'outlaw',label:'Outlaw',color:'#c44'},
+      {key:'deputy',label:'Deputy',color:'#48c'},
+    ];
+    rows.innerHTML=roleData.map(r=>`
+      <div class="role-custom-row">
+        <span class="role-custom-name" style="color:${r.color}">${r.label}</span>
+        <div class="role-custom-controls">
+          <button class="role-adj-btn" onclick="adjustRole('${r.key}',-1)" ${cfg[r.key]<=0?'disabled':''}>−</button>
+          <span class="role-custom-count">${cfg[r.key]}</span>
+          <button class="role-adj-btn" onclick="adjustRole('${r.key}',1)">+</button>
+        </div>
+      </div>
+    `).join('')+'<button class="role-reset-btn" onclick="resetRoles()">Reset to Default</button>';
+    const info=document.getElementById('role-custom-info');
+    if(info){
+      info.textContent=total===needed?`${total} of ${needed} roles ✓`:`${total} of ${needed} roles needed`;
+      info.style.color=total===needed?'#6a4':'#e44';
+    }
+  }
   window.toggleExpansion=function(enabled){
     window._dcEnabled=enabled;
     document.getElementById('exp-base').classList.toggle('picked',!enabled);
     document.getElementById('exp-dc').classList.toggle('picked',enabled);
     if(enabled && typeof enableDodgeCity==='function') enableDodgeCity();
     else if(typeof disableDodgeCity==='function') disableDodgeCity();
-    // Rebuild character grid with expanded layout for DC
+    // Show/hide filter bar and rebuild grid
+    window._charFilter='all';
+    const filterBar=document.getElementById('char-filter-bar');
+    if(filterBar) filterBar.style.display=enabled?'flex':'none';
+    if(filterBar) filterBar.querySelectorAll('.char-filter-btn').forEach((b,i)=>b.classList.toggle('picked',i===0));
     const grid=document.getElementById('char-grid-container');
     if(grid) {
-      grid.innerHTML=buildCharGrid();
+      grid.innerHTML=buildCharGrid('all');
       grid.classList.toggle('char-grid-expanded', enabled);
     }
     window._selectedChar=0;

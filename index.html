@@ -2,13 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#7a3e10">
 <title>BANG! - Wild West Card Game</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="images/icon-192.png">
 <link rel="stylesheet" href="game.css">
 <link rel="stylesheet" href="dodge-city.css">
 <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&display=swap" rel="stylesheet">
 </head>
 <body>
+
+<!-- Rotate Device Overlay -->
+<div id="rotate-overlay">
+  <div class="rotate-icon">📱</div>
+  <div class="rotate-text">Rotate Your Device</div>
+  <div class="rotate-sub">BANG! is best played in landscape mode</div>
+</div>
 
 <!-- Title Screen -->
 <div id="title-screen">
@@ -96,6 +108,7 @@
 
   <!-- Center: Table -->
   <div id="center-table">
+    <div class="mobile-roles-bar" id="mobile-roles-bar"></div>
     <div id="opponents-area"></div>
     <div id="deck-area">
       <div id="deck-area-left">
@@ -178,6 +191,14 @@
 <!-- Player badge overlay (Gatling/Indians responses) -->
 <div id="player-badge-overlay"></div>
 
+<!-- Mobile: Log toggle + panel -->
+<button class="mobile-log-btn" id="mobile-log-toggle" onclick="toggleMobileLog()">📜</button>
+<div class="mobile-log-panel" id="mobile-log-panel">
+  <button class="mobile-log-close" onclick="toggleMobileLog()">✕</button>
+  <div class="panel-title">Game Log</div>
+  <div id="mobile-game-log"></div>
+</div>
+
 <!-- Response prompt -->
 <div id="response-area">
   <h3 id="response-title">Respond?</h3>
@@ -195,5 +216,6 @@
 
 <script src="game.js"></script>
 <script src="dodge-city.js"></script>
+<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
 </body>
 </html>

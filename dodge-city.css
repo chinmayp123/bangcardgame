@@ -119,3 +119,14 @@
   background: linear-gradient(160deg, #e8ffe8, #c0e8c0);
   border-color: #4a8a4a;
 }
+
+/* Mobile DC overrides */
+@media (max-width: 768px) {
+  .char-grid.char-grid-expanded { grid-template-columns: repeat(2, 1fr) !important; }
+  .expansion-toggle { padding: 4px 10px; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .expansion-toggle-label { font-size: 0.72em; }
+  .char-dc-badge { font-size: 0.55em; padding: 0 3px; }
+}
+@media (max-width: 400px) {
+  .char-grid.char-grid-expanded { grid-template-columns: repeat(1, 1fr) !important; }
+}

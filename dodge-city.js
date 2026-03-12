@@ -111,8 +111,8 @@ function buildDodgeCityDeck() {
   add('Cat Balou','brown',1,8,'Discard a card (hand or in-play) from any player.');
   // Extra Indians! x1
   add('Indians!','brown',0,5,'Each other player must play a BANG! or lose 1 life.');
-  // Extra Missed! x1
-  add('Missed!','brown',0,8,'Cancel a BANG! played against you.');
+  // Extra MISS! x1
+  add('MISS!','brown',0,8,'Cancel a BANG! played against you.');
   // Extra General Store x1
   add('General Store','brown',3,14,'Reveal cards = alive players. Each picks one, starting with you.');
 
@@ -198,9 +198,10 @@ function buildDeckWithDC() {
 // Replace buildDeck globally
 buildDeck = buildDeckWithDC;
 
-// Override assignRoles to support 8 players
+// Override assignRoles to support 8 players (only if no custom roles set)
 const _originalAssignRoles = assignRoles;
 assignRoles = function(count) {
+  if(window._customRoles) return _originalAssignRoles(count);
   if(DC_ENABLED && count === 8) return assignRolesDC(count);
   return _originalAssignRoles(count);
 };

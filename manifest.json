@@ -1,0 +1,14 @@
+{
+  "name": "BANG! - Wild West Card Game",
+  "short_name": "BANG!",
+  "description": "The Wild West card game with Dodge City expansion",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#1a0e06",
+  "theme_color": "#7a3e10",
+  "icons": [
+    { "src": "images/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "images/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
